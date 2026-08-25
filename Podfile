@@ -4,6 +4,10 @@ target 'Harbor' do
   use_frameworks!
 
   pod 'MobileVLCKit', '~> 3.6'
+
+  target 'HarborTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|

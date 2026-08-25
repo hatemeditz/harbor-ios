@@ -69,8 +69,10 @@ struct AddonsView: View {
     private func installURL() {
         guard let authKey = AuthStore.shared.authKey else { return }
         Task {
-            await manager.installFromURL(authKey: authKey, rawURL: newAddonURL)
-            newAddonURL = ""
+            let installed = await manager.installFromURL(authKey: authKey, rawURL: newAddonURL)
+            if installed {
+                newAddonURL = ""
+            }
         }
     }
 
@@ -130,10 +132,6 @@ struct DebridSetupView: View {
     @State private var keys: [DebridProvider: String] = [:]
     @State private var isInstalling = false
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 100), spacing: 8)
-    ]
-
     var body: some View {
         List {
             if let status = manager.statusMessage {
@@ -149,44 +147,42 @@ struct DebridSetupView: View {
 
             syncedStreamingAddons
 
-            if manager.syncedStreamAddons.isEmpty && !manager.isLoading {
-                Section {
-                    ForEach(DebridProvider.allCases) { provider in
-                        HStack {
-                            Text(provider.displayName)
-                                .font(.subheadline)
-                                .frame(width: 96, alignment: .leading)
-                            SecureField("API key", text: binding(provider))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.footnote)
-                        }
+            Section {
+                ForEach(DebridProvider.allCases) { provider in
+                    HStack {
+                        Text(provider.displayName)
+                            .font(.subheadline)
+                            .frame(width: 96, alignment: .leading)
+                        SecureField("API key", text: binding(provider))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.footnote)
                     }
-                } header: {
-                    Text("Optional manual setup")
-                } footer: {
-                    Text("Use this only when your Stremio account has no configured streaming addon. The key stays in this device's Keychain and is added to the Torrentio transport URL saved to your Stremio account.")
                 }
+            } header: {
+                Text("Optional Torrentio setup")
+            } footer: {
+                Text("Keys stay in this device's Keychain. Installing or updating Torrentio adds its configured transport URL to your Stremio account.")
+            }
 
-                Section {
-                    Button {
-                        installTorrentio()
-                    } label: {
-                        HStack {
-                            if isInstalling {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: "wand.and.stars")
-                            }
-                            Text(isInstalling ? "Installing…" : "Install Torrentio")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
+            Section {
+                Button {
+                    installTorrentio()
+                } label: {
+                    HStack {
+                        if isInstalling {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "wand.and.stars")
                         }
+                        Text(isInstalling ? "Updating…" : "Install / Update Torrentio")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
                     }
-                    .disabled(isInstalling)
-                    .listRowBackground(Theme.accent)
-                    .foregroundColor(.white)
                 }
+                .disabled(isInstalling || manager.isLoading)
+                .listRowBackground(Theme.accent)
+                .foregroundColor(.white)
             }
         }
         .scrollContentBackground(.hidden)

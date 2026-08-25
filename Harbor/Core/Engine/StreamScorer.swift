@@ -4,7 +4,6 @@ import Foundation
 enum StreamScorer {
     static func score(raw: RawStream, id: Int) -> ScoredStream? {
         let parsed = TitleParser.parse(title: raw.title, description: raw.description)
-        let displayTitle = cleanTitle(raw.title ?? raw.description ?? "Stream")
 
         // Hard trust rejections.
         if parsed.isJunk { return nil }

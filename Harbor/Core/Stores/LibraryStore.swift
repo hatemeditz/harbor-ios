@@ -77,16 +77,16 @@ final class LibraryStore: ObservableObject {
 
     func saveProgress(
         authKey: String,
-        metaId: String,
-        videoId: String?,
+        target: StreamTarget,
         offset: Double,
         duration: Double
     ) async {
-        await mutate(authKey: authKey, id: metaId) { item in
+        await mutate(authKey: authKey, id: target.metaId) { item in
+            Self.applyMetadata(from: target, to: &item)
             var state = item.state ?? LibraryState()
-            let videoChanged = videoId != nil
+            let videoChanged = target.videoId != nil
                 && state.videoId != nil
-                && state.videoId != videoId
+                && state.videoId != target.videoId
             if videoChanged {
                 state.overallTimeWatched = (state.overallTimeWatched ?? 0) + (state.timeWatched ?? 0)
                 state.flaggedWatched = 0
@@ -94,7 +94,7 @@ final class LibraryStore: ObservableObject {
             state.timeOffset = (state.flaggedWatched ?? 0) > 0 ? 0 : offset
             state.timeWatched = offset
             state.duration = videoChanged ? duration : max(duration, state.duration ?? 0)
-            if let videoId {
+            if let videoId = target.videoId {
                 state.videoId = videoId
                 let parts = videoId.split(separator: ":")
                 if parts.count >= 3, let s = Int(parts[parts.count - 2]), let e = Int(parts[parts.count - 1]) {
@@ -107,26 +107,47 @@ final class LibraryStore: ObservableObject {
             state.overallTimeWatched = state.overallTimeWatched ?? 0
             state.noNotif = state.noNotif ?? false
             item.state = state
+            if item.removed {
+                item.temp = true
+            }
             item.removed = false
         }
     }
 
     /// Flags an episode/movie as fully watched.
-    func markWatched(authKey: String, metaId: String, videoId: String?) async {
-        await mutate(authKey: authKey, id: metaId) { item in
+    func markWatched(authKey: String, target: StreamTarget) async {
+        await mutate(authKey: authKey, id: target.metaId) { item in
+            Self.applyMetadata(from: target, to: &item)
             var state = item.state ?? LibraryState()
             state.flaggedWatched = 1
             state.timeOffset = 0
-            if let videoId { state.videoId = videoId }
+            if let videoId = target.videoId { state.videoId = videoId }
             state.timesWatched = (state.timesWatched ?? 0) + 1
             state.lastWatched = ISO8601DateFormatter().string(from: Date())
             item.state = state
+            if item.removed {
+                item.temp = true
+            }
+            item.removed = false
+        }
+    }
+
+    private static func applyMetadata(from target: StreamTarget, to item: inout LibraryItem) {
+        item.type = target.type
+        if item.name.isEmpty {
+            item.name = target.metaName
+        }
+        if item.poster == nil {
+            item.poster = target.poster
+        }
+        if item.background == nil {
+            item.background = target.background
         }
     }
 
     func toggleBookmark(authKey: String, meta: Meta) async {
         let existing = item(id: meta.id)
-        let shouldRemove = existing.map { !$0.removed && !$0.temp } ?? false
+        let shouldRemove = existing?.isBookmarked ?? false
         await mutate(authKey: authKey, id: meta.id) { item in
             if item.name.isEmpty {
                 item.name = meta.name
@@ -196,7 +217,7 @@ final class LibraryStore: ObservableObject {
             background: nil,
             posterShape: "poster",
             removed: false,
-            temp: false,
+            temp: true,
             ctime: now,
             mtime: now,
             state: nil,

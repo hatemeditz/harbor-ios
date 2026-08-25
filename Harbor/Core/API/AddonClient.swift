@@ -36,10 +36,14 @@ final class AddonClient {
     }
 
     func setAddonCollection(authKey: String, addons: [Addon]) async throws {
-        let raw: [[String: Any]] = addons.map { addon in
+        let raw: [[String: Any]] = try addons.map { addon in
+            let encodedManifest = try JSONEncoder().encode(addon.manifest)
+            guard let manifest = try JSONSerialization.jsonObject(with: encodedManifest) as? [String: Any] else {
+                throw StremioAPIError.decoding
+            }
             var dict: [String: Any] = [
                 "transportUrl": addon.transportUrl,
-                "manifest": (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(addon.manifest))) as? [String: Any] ?? [:],
+                "manifest": manifest,
             ]
             dict["flags"] = [
                 "official": addon.flags?.official ?? false,
@@ -74,6 +78,9 @@ final class AddonClient {
 
     static func baseURL(for transportUrl: String) -> String {
         var base = transportUrl
+        while base.hasSuffix("/") {
+            base.removeLast()
+        }
         for suffix in ["/manifest.json", "/manifest"] where base.hasSuffix(suffix) {
             base = String(base.dropLast(suffix.count))
         }

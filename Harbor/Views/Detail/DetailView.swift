@@ -12,6 +12,26 @@ struct DetailView: View {
 
     private var displayMeta: Meta { fullMeta ?? nav.meta }
 
+    private var episodeTargetMeta: Meta {
+        let meta = displayMeta
+        return Meta(
+            id: meta.id,
+            type: meta.type,
+            name: meta.name,
+            poster: meta.poster ?? nav.meta.poster,
+            background: meta.background ?? nav.meta.background,
+            logo: meta.logo,
+            description: meta.description,
+            releaseInfo: meta.releaseInfo,
+            imdbRating: meta.imdbRating,
+            genres: meta.genres,
+            runtime: meta.runtime,
+            country: meta.country,
+            network: meta.network,
+            videos: meta.videos
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -52,7 +72,7 @@ struct DetailView: View {
     }
 
     private func refreshBookmarkFlag() {
-        isBookmarked = library.item(id: nav.meta.id)?.isInWatchlist ?? false
+        isBookmarked = library.item(id: nav.meta.id)?.isBookmarked ?? false
     }
 
     private func toggleBookmark() {
@@ -162,7 +182,10 @@ struct DetailView: View {
                     type: displayMeta.type,
                     title: displayMeta.name,
                     videoId: nil,
-                    base: nav.base
+                    base: nav.base,
+                    metaName: displayMeta.name,
+                    poster: displayMeta.poster ?? nav.meta.poster,
+                    background: displayMeta.background ?? nav.meta.background
                 )) {
                     Label("Play", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
@@ -243,7 +266,7 @@ struct DetailView: View {
                 ForEach(videos.filter { ($0.season ?? 1) == activeSeason }) { video in
                     EpisodeRow(
                         video: video,
-                        metaId: displayMeta.id,
+                        meta: episodeTargetMeta,
                         watched: isEpisodeWatched(video),
                         base: nav.base
                     )
@@ -281,18 +304,21 @@ struct Badge: View {
 
 struct EpisodeRow: View {
     let video: MetaVideo
-    let metaId: String
+    let meta: Meta
     let watched: Bool
     let base: String?
 
     var body: some View {
         NavigationLink(
             value: StreamTarget(
-                metaId: metaId,
+                metaId: meta.id,
                 type: "series",
                 title: video.displayTitle,
                 videoId: video.id,
-                base: base
+                base: base,
+                metaName: meta.name,
+                poster: meta.poster,
+                background: meta.background
             )
         ) {
             HStack(alignment: .top, spacing: 12) {

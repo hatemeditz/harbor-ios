@@ -78,6 +78,10 @@ struct MetaVideo: Codable, Identifiable, Hashable {
 
     private static func parseDate(_ string: String) -> Date? {
         let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: string) {
+            return date
+        }
+        iso.formatOptions.insert(.withFractionalSeconds)
         return iso.date(from: string)
     }
 
@@ -107,4 +111,3 @@ struct MetaNavigation: Hashable {
         lhs.meta.id == rhs.meta.id && lhs.meta.type == rhs.meta.type
     }
 }
-

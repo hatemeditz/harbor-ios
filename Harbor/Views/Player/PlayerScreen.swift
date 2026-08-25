@@ -129,8 +129,7 @@ struct PlayerScreen: View {
                     await previous?.value
                     await LibraryStore.shared.markWatched(
                         authKey: authKey,
-                        metaId: watchedTarget.metaId,
-                        videoId: watchedTarget.videoId
+                        target: watchedTarget
                     )
                 }
             }
@@ -163,8 +162,7 @@ struct PlayerScreen: View {
             await previous?.value
             await LibraryStore.shared.saveProgress(
                 authKey: authKey,
-                metaId: progressTarget.metaId,
-                videoId: progressTarget.videoId,
+                target: progressTarget,
                 offset: offset * 1000,
                 duration: duration * 1000
             )
@@ -202,7 +200,10 @@ struct PlayerScreen: View {
             type: "series",
             title: next.displayTitle,
             videoId: next.id,
-            base: activeTarget.base
+            base: activeTarget.base,
+            metaName: activeTarget.metaName,
+            poster: activeTarget.poster,
+            background: activeTarget.background
         )
 
         Task {
@@ -324,8 +325,8 @@ struct PlayerScreen: View {
             HStack {
                 Text(timeString(player.currentTime))
                 Spacer()
-                if nextVideo != nil {
-                    Button("Next: \(nextVideo!.displayTitle)") {
+                if let nextVideo {
+                    Button("Next: \(nextVideo.displayTitle)") {
                         playNext()
                     }
                     .font(.caption.weight(.semibold))

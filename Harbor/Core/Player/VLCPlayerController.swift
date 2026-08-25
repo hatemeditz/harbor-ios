@@ -13,6 +13,7 @@ final class VLCPlayerController: NSObject, ObservableObject {
     @Published var rate: Float = 1.0
 
     let mediaPlayer = VLCMediaPlayer()
+    private var pendingStartTime: TimeInterval?
 
     override private init() {
         super.init()
@@ -31,16 +32,11 @@ final class VLCPlayerController: NSObject, ObservableObject {
         let media = VLCMedia(url: url)
         media.addOption(":network-caching=2000")
         mediaPlayer.media = media
+        pendingStartTime = seconds > 5 ? seconds : nil
         currentTime = 0
         duration = 0
         state = .buffering
         mediaPlayer.play()
-        if seconds > 5 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                guard let self, self.duration > 0 else { return }
-                self.seek(to: min(seconds, self.duration - 15))
-            }
-        }
     }
 
     func togglePlayPause() {
@@ -60,6 +56,7 @@ final class VLCPlayerController: NSObject, ObservableObject {
     }
 
     func stop() {
+        pendingStartTime = nil
         mediaPlayer.stop()
     }
 
@@ -81,8 +78,13 @@ final class VLCPlayerController: NSObject, ObservableObject {
 
     private func refreshFromPlayer() {
         let mediaLength = mediaPlayer.media?.length.intValue ?? 0
-        duration = TimeInterval(mediaLength) / 1000
-        currentTime = TimeInterval(mediaPlayer.time.intValue) / 1000
+        duration = max(TimeInterval(mediaLength) / 1000, 0)
+        currentTime = max(TimeInterval(mediaPlayer.time.intValue) / 1000, 0)
+
+        if let pendingStartTime, duration > 0 {
+            self.pendingStartTime = nil
+            seek(to: min(pendingStartTime, max(duration - 15, 0)))
+        }
 
         let newState: PlayState
         switch mediaPlayer.state {
@@ -104,13 +106,13 @@ final class VLCPlayerController: NSObject, ObservableObject {
 }
 
 extension VLCPlayerController: VLCMediaPlayerDelegate {
-    nonisolated func mediaPlayerTimeChanged(_ aNotification: Notification!) {
+    nonisolated func mediaPlayerTimeChanged(_ aNotification: Notification) {
         Task { @MainActor [weak self] in
             self?.refreshFromPlayer()
         }
     }
 
-    nonisolated func mediaPlayerStateChanged(_ aNotification: Notification!) {
+    nonisolated func mediaPlayerStateChanged(_ aNotification: Notification) {
         Task { @MainActor [weak self] in
             self?.refreshFromPlayer()
         }

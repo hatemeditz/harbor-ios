@@ -131,7 +131,11 @@ extension LibraryItem {
     }
 
     var isInWatchlist: Bool {
-        !removed && !temp && (state?.timeOffset ?? 0) <= 0 && (state?.flaggedWatched ?? 0) <= 0
+        isBookmarked && (state?.timeOffset ?? 0) <= 0 && (state?.flaggedWatched ?? 0) <= 0
+    }
+
+    var isBookmarked: Bool {
+        !removed && !temp
     }
 
     var isWatchedFlagged: Bool {
@@ -152,7 +156,12 @@ extension LibraryItem {
     }
 
     private static func parseISO(_ string: String) -> TimeInterval? {
-        ISO8601DateFormatter().date(from: string)?.timeIntervalSince1970
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: string) {
+            return date.timeIntervalSince1970
+        }
+        iso.formatOptions.insert(.withFractionalSeconds)
+        return iso.date(from: string)?.timeIntervalSince1970
     }
 
     func asMeta() -> Meta {
