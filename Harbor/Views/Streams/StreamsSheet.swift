@@ -79,10 +79,14 @@ struct StreamsSheet: View {
     }
 
     private var streamList: some View {
-        ScrollView {
+            ScrollView {
             LazyVStack(spacing: 10) {
                 ForEach(engine.streams) { scored in
                     StreamRow(scored: scored, tierColor: tierColors[scored.tierLabel] ?? Color(white: 0.3))
+                        .onTapGesture {
+                            guard scored.playable else { return }
+                            playingStream = scored
+                        }
                 }
 
                 if engine.isLoading {
@@ -155,9 +159,5 @@ struct StreamRow: View {
         .padding(12)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
         .opacity(scored.playable ? 1 : 0.65)
-        .onTapGesture {
-            guard scored.playable else { return }
-            playingStream = scored
-        }
     }
 }

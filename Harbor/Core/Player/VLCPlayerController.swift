@@ -64,7 +64,7 @@ final class VLCPlayerController: NSObject, ObservableObject {
     func seek(to seconds: TimeInterval) {
         guard duration > 0 else { return }
         let clamped = max(0, min(seconds, duration - 1))
-        mediaPlayer.time = VLCTime(int: Int(clamped))
+        mediaPlayer.time = VLCTime(int: Int32(clamped))
         currentTime = clamped
     }
 
@@ -78,7 +78,8 @@ final class VLCPlayerController: NSObject, ObservableObject {
     }
 
     private func refreshFromPlayer() {
-        duration = TimeInterval(mediaPlayer.duration.intValue)
+        let mediaLength = mediaPlayer.media?.length.intValue ?? 0
+        duration = TimeInterval(mediaLength)
         currentTime = TimeInterval(mediaPlayer.time.intValue)
 
         let newState: PlayState
