@@ -2,7 +2,10 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var auth = AuthStore.shared
+    @AppStorage("harbor.region") private var region = "US"
     @State private var confirmSignOut = false
+
+    private let regions = ["US", "UK", "CA", "AU", "DE", "FR", "ES", "IT", "NL", "BR", "MX", "IN", "JP", "KR", "SE", "PL"]
 
     var body: some View {
         NavigationStack {
@@ -41,16 +44,47 @@ struct SettingsView: View {
                             Image(systemName: "person.crop.circle.badge.xmark")
                                 .font(.system(size: 36))
                                 .foregroundColor(Theme.textSecondary)
-                            Text("Not signed in")
-                                .foregroundColor(Theme.textSecondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Not signed in")
+                                    .font(.body.weight(.semibold))
+                                Text("Sign in to sync your library and addons.")
+                                    .font(.caption)
+                                    .foregroundColor(Theme.textSecondary)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
                 }
 
+                if auth.isSignedIn {
+                    Section("Library") {
+                        NavigationLink {
+                            AddonsView()
+                        } label: {
+                            Label("Addons", systemImage: "puzzlepiece.extension")
+                        }
+                        NavigationLink {
+                            DebridSetupView()
+                        } label: {
+                            Label("Streaming & Debrid", systemImage: "wand.and.stars")
+                        }
+                    }
+
+                    Section("Preferences") {
+                        Picker(selection: $region) {
+                            ForEach(regions, id: \.self) { code in
+                                Text(code).tag(code)
+                            }
+                        } label: {
+                            Label("Region", systemImage: "globe")
+                        }
+                    }
+                }
+
                 Section("About") {
-                    LabeledRow(label: "Version", value: "0.1.0")
+                    LabeledRow(label: "Version", value: "0.9.0")
                     LabeledRow(label: "Build", value: "1")
+                    LabeledRow(label: "Player", value: "VLC")
                 }
             }
             .scrollContentBackground(.hidden)
