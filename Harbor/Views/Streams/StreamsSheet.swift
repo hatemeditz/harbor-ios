@@ -4,6 +4,7 @@ struct StreamsSheet: View {
     let target: StreamTarget
 
     @StateObject private var engine = StreamEngine()
+    @State private var playingStream: ScoredStream?
 
     private let tierColors: [String: Color] = [
         "4K": .purple,
@@ -28,6 +29,15 @@ struct StreamsSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: target) {
             await engine.load(target: target)
+        }
+        .fullScreenCover(item: $playingStream) { stream in
+            Group {
+                if let urlString = stream.raw.url, let url = URL(string: urlString) {
+                    PlayerScreen(streamURL: url, title: target.title, target: target)
+                } else {
+                    Color.black.ignoresSafeArea()
+                }
+            }
         }
     }
 
@@ -145,5 +155,9 @@ struct StreamRow: View {
         .padding(12)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
         .opacity(scored.playable ? 1 : 0.65)
+        .onTapGesture {
+            guard scored.playable else { return }
+            playingStream = scored
+        }
     }
 }
