@@ -94,7 +94,7 @@ final class StreamEngine: ObservableObject {
                 }
 
                 var batch: [ScoredStream] = []
-                for var raw in rawStreams {
+                for var raw in (rawStreams ?? []) {
                     raw.addonName = progress.first { $0.id == addonId }?.name
                     nextId += 1
                     if let scored = StreamScorer.score(raw: raw, id: nextId) {
