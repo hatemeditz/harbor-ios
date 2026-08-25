@@ -91,3 +91,20 @@ struct MetaVideo: Codable, Identifiable, Hashable {
     var episodeNumber: Int? { episode }
     var seasonNumber: Int? { season }
 }
+
+/// Navigation payload carrying the originating addon base so detail can fetch
+/// meta from the right source (falls back to Cinemeta).
+struct MetaNavigation: Hashable {
+    let meta: Meta
+    let base: String?
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(meta.id)
+        hasher.combine(meta.type)
+    }
+
+    static func == (lhs: MetaNavigation, rhs: MetaNavigation) -> Bool {
+        lhs.meta.id == rhs.meta.id && lhs.meta.type == rhs.meta.type
+    }
+}
+}

@@ -26,8 +26,8 @@ struct LibraryView: View {
             .navigationTitle("Library")
             .refreshable { await sync() }
             .task { await sync() }
-            .navigationDestination(for: Meta.self) { meta in
-                DetailView(meta: meta)
+            .navigationDestination(for: MetaNavigation.self) { nav in
+                DetailView(nav: nav)
             }
         }
     }
@@ -45,7 +45,7 @@ struct LibraryView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(items) { item in
-                    NavigationLink(value: item.asMeta()) {
+                    NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
                         PosterCard(meta: item.asMeta(), width: 104)
                     }
                     .buttonStyle(.plain)
@@ -74,7 +74,7 @@ struct LibraryView: View {
             } else {
                 LazyVStack(spacing: 14) {
                     ForEach(library.continueWatching) { item in
-                        NavigationLink(value: item.asMeta()) {
+                        NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
                             ContinueWatchingCard(item: item)
                         }
                         .buttonStyle(.plain)

@@ -68,8 +68,8 @@ struct SearchView: View {
             }
             .background(Theme.background)
             .navigationTitle("Search")
-            .navigationDestination(for: Meta.self) { meta in
-                DetailView(meta: meta)
+            .navigationDestination(for: MetaNavigation.self) { nav in
+                DetailView(nav: nav)
             }
             .searchable(text: $viewModel.query, prompt: "Movies & series")
             .onChange(of: viewModel.query) { _ in
@@ -82,7 +82,7 @@ struct SearchView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(viewModel.results) { meta in
-                    NavigationLink(value: meta) {
+                    NavigationLink(value: MetaNavigation(meta: meta, base: nil)) {
                         PosterCard(meta: meta, width: 104)
                     }
                     .buttonStyle(.plain)

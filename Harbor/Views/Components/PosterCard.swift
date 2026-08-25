@@ -100,7 +100,7 @@ struct RailRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     ForEach(Array(rail.metas.prefix(24))) { meta in
-                        NavigationLink(value: meta) {
+                        NavigationLink(value: MetaNavigation(meta: meta, base: rail.base)) {
                             PosterCard(meta: meta)
                         }
                         .buttonStyle(.plain)

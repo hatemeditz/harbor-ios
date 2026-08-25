@@ -97,8 +97,8 @@ struct HomeView: View {
                     await LibraryStore.shared.refresh(authKey: authKey)
                 }
             }
-            .navigationDestination(for: Meta.self) { meta in
-                DetailView(meta: meta)
+            .navigationDestination(for: MetaNavigation.self) { nav in
+                DetailView(nav: nav)
             }
         }
     }
@@ -113,7 +113,7 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     ForEach(library.continueWatching.prefix(20)) { item in
-                        NavigationLink(value: item.asMeta()) {
+                        NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
                             ContinueWatchingCard(item: item)
                         }
                         .buttonStyle(.plain)
