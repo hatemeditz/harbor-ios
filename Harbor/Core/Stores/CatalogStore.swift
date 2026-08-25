@@ -160,7 +160,8 @@ final class CatalogStore: ObservableObject {
             base: AddonClient.cinemetaBase, type: "series", id: "top",
             extras: ["search": trimmed, "skip": String(skip)]
         )
-        let (m, s) = await (movies, series)
+        let m = (try? await movies) ?? []
+        let s = (try? await series) ?? []
         return m + s
     }
 }

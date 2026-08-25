@@ -65,6 +65,28 @@ struct PosterCard: View {
     }
 }
 
+struct ContentUnavailableCompat: View {
+    let icon: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 40))
+                .foregroundColor(Theme.textSecondary)
+            Text(title)
+                .font(.title3.bold())
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
+    }
+}
+
 struct RailRow: View {
     let rail: Rail
 
