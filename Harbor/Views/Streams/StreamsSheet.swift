@@ -64,18 +64,32 @@ struct StreamsSheet: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "water.waves.slash")
+            Image(systemName: engine.errorMessage == nil ? "water.waves.slash" : "exclamationmark.triangle")
                 .font(.system(size: 40))
                 .foregroundColor(Theme.textSecondary)
-            Text("No streams found")
+            Text(emptyTitle)
                 .font(.title3.bold())
-            Text("Install a stream addon (e.g. Torrentio with your debrid key) in Settings.")
+            Text(emptyMessage)
                 .font(.subheadline)
                 .foregroundColor(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyTitle: String {
+        if engine.errorMessage != nil { return "Could not load streams" }
+        if engine.progress.isEmpty { return "No stream addons available" }
+        return "No streams found"
+    }
+
+    private var emptyMessage: String {
+        if let error = engine.errorMessage { return error }
+        if engine.progress.isEmpty {
+            return "Harbor automatically uses streaming addons installed in your Stremio account. Install or configure one in Stremio on any device, then try again."
+        }
+        return "Your \(engine.progress.count) synced streaming addon(s) returned no sources for this title."
     }
 
     private var streamList: some View {

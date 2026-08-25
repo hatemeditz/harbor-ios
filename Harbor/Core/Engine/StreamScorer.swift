@@ -42,7 +42,13 @@ enum StreamScorer {
         case .unknown: break
         }
 
-        if raw.url != nil && !(raw.behaviorHints?.notWebReady ?? false) {
+        if let value = raw.url,
+           let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           (scheme == "http" || scheme == "https"),
+           url.host != nil {
+            // `notWebReady` is a browser-player hint. Harbor uses native VLC,
+            // so a valid direct HTTP(S) URL from a debrid addon is playable.
             playable = true
             score += 150
         } else if let hash = raw.infoHash, !hash.isEmpty {

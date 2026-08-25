@@ -1,7 +1,16 @@
 import Foundation
 
-struct StreamResponse: Codable {
-    let streams: [RawStream]?
+struct StreamResponse: Decodable {
+    let streams: [RawStream]
+
+    private enum CodingKeys: String, CodingKey {
+        case streams
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        streams = try container.decodeIfPresent(LossyArray<RawStream>.self, forKey: .streams)?.elements ?? []
+    }
 }
 
 struct RawStream: Codable {

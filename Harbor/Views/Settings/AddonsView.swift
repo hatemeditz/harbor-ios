@@ -48,7 +48,7 @@ struct AddonsView: View {
             }
 
             Section {
-                Text("Tip: use the Streaming section to install Torrentio with your debrid key — that's what makes streams playable on iPhone.")
+                Text("Addons installed or configured in Stremio on your PC sync here automatically. Add a URL only when the addon is not already in your Stremio account.")
                     .font(.caption)
                     .foregroundColor(Theme.textSecondary)
             }
@@ -147,49 +147,51 @@ struct DebridSetupView: View {
                     .font(.subheadline)
             }
 
-            torrentioStatusRow
+            syncedStreamingAddons
 
-            Section {
-                ForEach(DebridProvider.allCases) { provider in
-                    HStack {
-                        Text(provider.displayName)
-                            .font(.subheadline)
-                            .frame(width: 96, alignment: .leading)
-                        SecureField("API key", text: binding(provider))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.footnote)
-                    }
-                }
-            } header: {
-                Text("Debrid API keys")
-            } footer: {
-                Text("Keys are stored only in this device's Keychain and embedded into your Torrentio addon URL so streams come back as direct HTTPS links.")
-            }
-
-            Section {
-                Button {
-                    installTorrentio()
-                } label: {
-                    HStack {
-                        if isInstalling {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "wand.and.stars")
+            if manager.syncedStreamAddons.isEmpty && !manager.isLoading {
+                Section {
+                    ForEach(DebridProvider.allCases) { provider in
+                        HStack {
+                            Text(provider.displayName)
+                                .font(.subheadline)
+                                .frame(width: 96, alignment: .leading)
+                            SecureField("API key", text: binding(provider))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.footnote)
                         }
-                        Text(isInstalling ? "Installing…" : "Install / Update Torrentio")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
                     }
+                } header: {
+                    Text("Optional manual setup")
+                } footer: {
+                    Text("Use this only when your Stremio account has no configured streaming addon. The key stays in this device's Keychain and is added to the Torrentio transport URL saved to your Stremio account.")
                 }
-                .disabled(isInstalling)
-                .listRowBackground(Theme.accent)
-                .foregroundColor(.white)
+
+                Section {
+                    Button {
+                        installTorrentio()
+                    } label: {
+                        HStack {
+                            if isInstalling {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "wand.and.stars")
+                            }
+                            Text(isInstalling ? "Installing…" : "Install Torrentio")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(isInstalling)
+                    .listRowBackground(Theme.accent)
+                    .foregroundColor(.white)
+                }
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .navigationTitle("Streaming")
+        .navigationTitle("Streaming & Debrid")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadKeys() }
         .task {
@@ -199,23 +201,41 @@ struct DebridSetupView: View {
         }
     }
 
-    private var torrentioStatusRow: some View {
-        let status = manager.torrentioStatus()
-        return Section {
-            HStack(spacing: 10) {
-                Image(systemName: status.installed ? "checkmark.seal.fill" : "circle.dashed")
-                    .foregroundColor(status.installed ? .green : Theme.textSecondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Torrentio")
-                        .font(.body.weight(.medium))
-                    Text(status.installed
-                         ? (status.keyed ? "Installed with debrid keys" : "Installed without keys")
-                         : "Not installed")
-                        .font(.caption)
-                        .foregroundColor(Theme.textSecondary)
+    private var syncedStreamingAddons: some View {
+        Section {
+            if manager.isLoading && manager.syncedStreamAddons.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView().tint(Theme.accent)
+                    Spacer()
+                }
+            } else if manager.syncedStreamAddons.isEmpty {
+                Text("No configured streaming addon was found in your Stremio account.")
+                    .font(.subheadline)
+                    .foregroundColor(Theme.textSecondary)
+            } else {
+                ForEach(manager.syncedStreamAddons) { addon in
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(addon.displayName)
+                                .font(.body.weight(.medium))
+                            Text(manager.hasEmbeddedDebridConfiguration(addon)
+                                 ? "Debrid configuration synced from Stremio"
+                                 : "Streaming addon synced from Stremio")
+                                .font(.caption)
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                    }
                 }
             }
-            .padding(.vertical, 2)
+        } header: {
+            Text("Stremio account")
+        } footer: {
+            if !manager.syncedStreamAddons.isEmpty {
+                Text("Harbor uses these addons and their configured transport URLs automatically. You do not need to reinstall them or enter the debrid key again.")
+            }
         }
     }
 

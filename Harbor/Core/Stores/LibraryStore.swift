@@ -50,32 +50,20 @@ final class LibraryStore: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let rawIds: [[String]] = try await StremioAPI.shared.call(
-                "datastoreMeta",
-                body: ["authKey": authKey, "collection": "libraryItem"]
+            // This is Stremio's full-library pull contract. datastoreMeta
+            // returns heterogeneous [id, millisecondTimestamp] tuples and is
+            // intended for clients that maintain their own incremental cache.
+            let response: LossyArray<LibraryItem> = try await StremioAPI.shared.call(
+                "datastoreGet",
+                body: [
+                    "authKey": authKey,
+                    "collection": "libraryItem",
+                    "ids": [],
+                    "all": true,
+                ]
             )
             guard AuthStore.shared.authKey == authKey else { return }
-            let ids = rawIds.compactMap { $0.first }
-            guard !ids.isEmpty else {
-                items = []
-                lastSync = Date()
-                return
-            }
-            var fetched: [LibraryItem] = []
-            for chunk in stride(from: 0, to: ids.count, by: 400).map({ Array(ids[$0..<min($0 + 400, ids.count)]) }) {
-                let page: [LibraryItem] = try await StremioAPI.shared.call(
-                    "datastoreGet",
-                    body: [
-                        "authKey": authKey,
-                        "collection": "libraryItem",
-                        "ids": chunk,
-                        "all": true,
-                    ]
-                )
-                fetched += page
-            }
-            guard AuthStore.shared.authKey == authKey else { return }
-            items = fetched
+            items = response.elements
             lastSync = Date()
         } catch {
             // Keep stale data and allow the next refresh to retry immediately.
@@ -193,11 +181,11 @@ final class LibraryStore: ObservableObject {
 
         if target == nil {
             // Pull from cloud before creating fresh (another device may have it).
-            let remote: [LibraryItem]? = try? await StremioAPI.shared.call(
+            let remote: LossyArray<LibraryItem>? = try? await StremioAPI.shared.call(
                 "datastoreGet",
                 body: ["authKey": authKey, "collection": "libraryItem", "ids": [id], "all": false]
             )
-            target = remote?.first
+            target = remote?.elements.first
         }
 
         var item = target ?? LibraryItem(

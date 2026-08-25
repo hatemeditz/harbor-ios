@@ -12,6 +12,24 @@ final class AddonManager: ObservableObject {
 
     private init() {}
 
+    var syncedStreamAddons: [Addon] {
+        cloudAddons.filter { addon in
+            !(addon.manifest.behaviorHints?.configurationRequired ?? false)
+                && (addon.manifest.resources ?? []).contains { $0.typeName == "stream" }
+        }
+    }
+
+    func hasEmbeddedDebridConfiguration(_ addon: Addon) -> Bool {
+        let transport = (addon.transportUrl.removingPercentEncoding ?? addon.transportUrl).lowercased()
+        return DebridProvider.allCases.contains { transport.contains("\($0.queryName)=") }
+    }
+
+    func applySyncedAddons(_ addons: [Addon], authKey: String) {
+        guard AuthStore.shared.authKey == authKey else { return }
+        cloudAddons = addons
+        errorMessage = nil
+    }
+
     func reset() {
         cloudAddons = []
         isLoading = false
@@ -145,14 +163,6 @@ final class AddonManager: ObservableObject {
             errorMessage = "Torrentio install failed: \(error.localizedDescription)"
             return false
         }
-    }
-
-    func torrentioStatus() -> (installed: Bool, keyed: Bool) {
-        let torrentio = cloudAddons.first {
-            $0.transportUrl.lowercased().contains("torrentio.strem.fun")
-        }
-        guard let torrentio else { return (false, false) }
-        return (true, torrentio.transportUrl.contains("="))
     }
 
     func isRemovable(_ addon: Addon) -> Bool {

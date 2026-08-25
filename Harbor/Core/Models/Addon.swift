@@ -74,7 +74,7 @@ struct AddonResourceDef: Codable, Equatable {
 struct AddonCatalogDef: Codable, Equatable {
     let type: String
     let id: String
-    let name: String
+    let name: String?
     let extra: [AddonCatalogExtra]?
 }
 
@@ -84,6 +84,15 @@ struct AddonCatalogExtra: Codable, Equatable {
     let options: [String]?
 }
 
-struct AddonCollectionResult: Codable {
+struct AddonCollectionResult: Decodable {
     let addons: [Addon]
+
+    private enum CodingKeys: String, CodingKey {
+        case addons
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        addons = try container.decode(LossyArray<Addon>.self, forKey: .addons).elements
+    }
 }

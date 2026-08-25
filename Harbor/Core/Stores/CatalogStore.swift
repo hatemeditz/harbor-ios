@@ -16,6 +16,7 @@ final class CatalogStore: ObservableObject {
 
     @Published private(set) var addons: [Addon] = []
     @Published private(set) var isLoaded = false
+    @Published private(set) var errorMessage: String?
 
     private var loadTask: Task<Void, Never>?
 
@@ -23,7 +24,20 @@ final class CatalogStore: ObservableObject {
     func gatherAddons(authKey: String?) async -> [Addon] {
         var collected: [Addon] = []
         if let authKey {
-            collected = (try? await AddonClient.shared.addonCollection(authKey: authKey)) ?? []
+            do {
+                collected = try await AddonClient.shared.addonCollection(authKey: authKey)
+                guard authKey == AuthStore.shared.authKey else { return [] }
+                errorMessage = nil
+                AddonManager.shared.applySyncedAddons(collected, authKey: authKey)
+            } catch {
+                guard authKey == AuthStore.shared.authKey else { return [] }
+                errorMessage = error.localizedDescription
+                // A transient refresh failure should not discard a collection
+                // that was already synced during this session.
+                collected = AddonManager.shared.cloudAddons
+            }
+        } else {
+            errorMessage = nil
         }
         let seen = Set(collected.map(\.transportUrl))
         let cinemeta = Addon(
@@ -49,6 +63,7 @@ final class CatalogStore: ObservableObject {
         loadTask = nil
         addons = []
         isLoaded = false
+        errorMessage = nil
     }
 
     /// Build home rails from every catalog of every addon (deduped by name+type).
@@ -70,7 +85,8 @@ final class CatalogStore: ObservableObject {
                       !(cat.extra ?? []).contains(where: { $0.name == "search" && $0.isRequired == true })
                 else { continue }
 
-                let key = Self.normalizeName(cat.name, type: cat.type)
+                let name = cat.name ?? cat.id
+                let key = Self.normalizeName(name, type: cat.type)
                 guard !seenKeys.contains(key) else { continue }
                 seenKeys.insert(key)
 
@@ -86,7 +102,7 @@ final class CatalogStore: ObservableObject {
                 pending.append(PendingRail(
                     rail: Rail(
                         id: key,
-                        title: cat.name,
+                        title: name,
                         type: cat.type,
                         metas: [],
                         base: AddonClient.baseURL(for: addon.transportUrl),
@@ -122,7 +138,7 @@ final class CatalogStore: ObservableObject {
     }
 
     static let cinemetaManifest = AddonManifest(
-        id: "com.stremio.cinemeta",
+        id: "com.linvo.cinemeta",
         name: "Cinemeta",
         version: "3.0",
         description: "Official Stremio metadata for movies and series.",
@@ -133,7 +149,6 @@ final class CatalogStore: ObservableObject {
         resources: [
             .detailed(AddonResourceDef(name: "catalog", types: ["movie", "series"], idPrefixes: ["tt"])),
             .detailed(AddonResourceDef(name: "meta", types: ["movie", "series"], idPrefixes: ["tt"])),
-            .detailed(AddonResourceDef(name: "stream", types: ["movie", "series"], idPrefixes: ["tt"])),
         ],
         catalogs: [
             AddonCatalogDef(type: "movie", id: "top", name: "Trending Movies", extra: [

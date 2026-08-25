@@ -1,5 +1,31 @@
 import Foundation
 
+private struct FailableDecodable<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
+/// Decodes valid elements without rejecting an entire Stremio collection when
+/// one legacy record contains fields this client does not understand.
+struct LossyArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var decoded: [Element] = []
+        while !container.isAtEnd {
+            let element = try container.decode(FailableDecodable<Element>.self)
+            if let value = element.value {
+                decoded.append(value)
+            }
+        }
+        elements = decoded
+    }
+}
+
 enum StremioAPIError: LocalizedError {
     case http(Int)
     case server(String)
@@ -123,6 +149,7 @@ final class StremioAPI {
 
     func login(email: String, password: String) async throws -> LoginResponse {
         try await call("login", body: [
+            "type": "Login",
             "email": email,
             "password": password,
             "facebook": false,
@@ -130,10 +157,10 @@ final class StremioAPI {
     }
 
     func getUser(authKey: String) async throws -> StremioUser {
-        try await call("getUser", body: ["authKey": authKey])
+        try await call("getUser", body: ["type": "GetUser", "authKey": authKey])
     }
 
     func logout(authKey: String) async throws {
-        try await callIgnoringResult("logout", body: ["authKey": authKey])
+        try await callIgnoringResult("logout", body: ["type": "Logout", "authKey": authKey])
     }
 }

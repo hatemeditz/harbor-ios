@@ -30,7 +30,7 @@ final class AddonClient {
     func addonCollection(authKey: String) async throws -> [Addon] {
         let result: AddonCollectionResult = try await StremioAPI.shared.call(
             "addonCollectionGet",
-            body: ["authKey": authKey, "type": "user", "update": false]
+            body: ["type": "AddonCollectionGet", "authKey": authKey, "update": true]
         )
         return result.addons
     }
@@ -39,7 +39,6 @@ final class AddonClient {
         let raw: [[String: Any]] = addons.map { addon in
             var dict: [String: Any] = [
                 "transportUrl": addon.transportUrl,
-                "transportName": "",
                 "manifest": (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(addon.manifest))) as? [String: Any] ?? [:],
             ]
             dict["flags"] = [
@@ -50,7 +49,7 @@ final class AddonClient {
         }
         try await StremioAPI.shared.callIgnoringResult(
             "addonCollectionSet",
-            body: ["authKey": authKey, "type": "user", "addons": raw]
+            body: ["type": "AddonCollectionSet", "authKey": authKey, "addons": raw]
         )
     }
 

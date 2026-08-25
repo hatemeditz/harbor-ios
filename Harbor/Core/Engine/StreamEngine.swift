@@ -17,6 +17,7 @@ final class StreamEngine: ObservableObject {
     @Published var streams: [ScoredStream] = []
     @Published var progress: [AddonProgress] = []
     @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private var nextId = 0
     private var loadToken = UUID()
@@ -55,10 +56,17 @@ final class StreamEngine: ObservableObject {
         let token = loadToken
         isLoading = true
         streams = []
+        progress = []
+        errorMessage = nil
         nextId = 0
 
         let stremioId = target.videoId ?? target.metaId
         let addons = await streamAddons(for: target)
+        guard token == loadToken else { return }
+
+        if let syncError = CatalogStore.shared.errorMessage {
+            errorMessage = "Could not sync the addons in your Stremio account: \(syncError)"
+        }
 
         progress = addons.map { addon in
             AddonProgress(id: addon.id, name: addon.manifest.name, state: .pending)
@@ -80,7 +88,7 @@ final class StreamEngine: ObservableObject {
                                 id: stremioId
                             )
                         )
-                        return (addon.id, response.streams ?? [], true)
+                        return (addon.id, response.streams, true)
                     } catch {
                         return (addon.id, nil, false)
                     }
@@ -106,6 +114,14 @@ final class StreamEngine: ObservableObject {
         }
 
         if token == loadToken {
+            if streams.isEmpty,
+               !progress.isEmpty,
+               progress.allSatisfy({
+                   if case .failed = $0.state { return true }
+                   return false
+               }) {
+                errorMessage = "Your Stremio stream addons synced, but none of them could be reached."
+            }
             isLoading = false
         }
     }

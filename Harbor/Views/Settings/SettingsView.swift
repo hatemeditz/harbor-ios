@@ -82,8 +82,8 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledRow(label: "Version", value: "0.9.1")
-                    LabeledRow(label: "Build", value: "2")
+                    LabeledRow(label: "Version", value: "0.9.2")
+                    LabeledRow(label: "Build", value: "3")
                     LabeledRow(label: "Player", value: "VLC")
                 }
             }
