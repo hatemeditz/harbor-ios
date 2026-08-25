@@ -9,7 +9,7 @@ struct StreamTarget: Hashable {
     let base: String?
 
     static func == (lhs: StreamTarget, rhs: StreamTarget) -> Bool {
-        lhs.metaId == rhs.metaId && lhs.type == rhs.metaType
+        lhs.metaId == rhs.metaId && lhs.type == rhs.type
             && lhs.videoId == rhs.videoId && lhs.base == rhs.base
     }
 

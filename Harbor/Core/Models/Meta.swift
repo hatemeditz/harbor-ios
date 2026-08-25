@@ -107,4 +107,4 @@ struct MetaNavigation: Hashable {
         lhs.meta.id == rhs.meta.id && lhs.meta.type == rhs.meta.type
     }
 }
-}
+
