@@ -1,0 +1,48 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install CocoaPods dependencies
+        run: pod install --repo-update
+
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -workspace Harbor.xcworkspace \
+            -scheme Harbor \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Harbor.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R "build/Harbor.xcarchive/Products/Applications/Harbor.app" build/Payload/
+          cd build
+          zip -qry Harbor-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Harbor-ipa
+          path: build/Harbor-unsigned.ipa
+          if-no-files-found: error

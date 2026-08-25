@@ -1,0 +1,52 @@
+name: Harbor
+
+options:
+  bundleIdPrefix: site.harbor
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: ""
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  Harbor:
+    type: application
+    platform: iOS
+    sources:
+      - Harbor
+    info:
+      path: Harbor/Info.plist
+      properties:
+        CFBundleDisplayName: Harbor
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - audio
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: site.harbor.ios
+        TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  Harbor:
+    build:
+      targets:
+        Harbor: all
+    run:
+      config: Debug
+    archive:
+      config: Release
