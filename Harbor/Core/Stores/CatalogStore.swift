@@ -47,7 +47,7 @@ final class CatalogStore: ObservableObject {
         let existing = loadedAuthKey == authKey ? addons : []
         loadGeneration &+= 1
         let generation = loadGeneration
-        let task = Task { @MainActor [weak self] in
+        let task = Task<[Addon], Never> { @MainActor [weak self] in
             guard let self else { return [] }
             return await self.fetchAddons(authKey: authKey, existing: existing)
         }
