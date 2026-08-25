@@ -4,6 +4,7 @@ struct PosterCard: View {
     let meta: Meta
     var width: CGFloat = 122
     var showTitle = true
+    var showTypeBadge = false
 
     private var posterHeight: CGFloat { width * 1.5 }
 
@@ -25,6 +26,17 @@ struct PosterCard: View {
                 }
                 .frame(width: width, height: posterHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(alignment: .topTrailing) {
+                    if showTypeBadge {
+                        Text(meta.type == "series" ? "SERIES" : "MOVIE")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .padding(5)
+                    }
+                }
 
                 if let rating = meta.imdbRating, !rating.isEmpty {
                     HStack(spacing: 3) {

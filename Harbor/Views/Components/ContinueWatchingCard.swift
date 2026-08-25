@@ -14,7 +14,7 @@ struct ContinueWatchingCard: View {
                     if let image = phase.image {
                         image.resizable().scaledToFill()
                     } else {
-                        Theme.surfaceRaised
+                        fallbackArtwork
                     }
                 }
                 .frame(width: width, height: height)
@@ -64,5 +64,18 @@ struct ContinueWatchingCard: View {
         let hours = minutes / 60
         let mins = minutes % 60
         return hours > 0 ? "\(hours)h \(mins)m watched" : "\(mins)m watched"
+    }
+
+    private var fallbackArtwork: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Theme.surfaceRaised, Theme.accent.opacity(0.25)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "film.stack")
+                .font(.system(size: 30, weight: .light))
+                .foregroundColor(.white.opacity(0.35))
+        }
     }
 }

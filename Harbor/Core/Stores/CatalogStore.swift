@@ -14,19 +14,57 @@ struct Rail: Identifiable {
 final class CatalogStore: ObservableObject {
     static let shared = CatalogStore()
 
+    private struct LoadKey: Equatable {
+        let authKey: String?
+        let force: Bool
+    }
+
+    private struct InFlightLoad {
+        let key: LoadKey
+        let generation: UInt
+        let task: Task<[Addon], Never>
+    }
+
     @Published private(set) var addons: [Addon] = []
     @Published private(set) var isLoaded = false
     @Published private(set) var errorMessage: String?
 
-    private var loadTask: Task<Void, Never>?
+    private var loadTask: InFlightLoad?
+    private var loadGeneration: UInt = 0
+    private var loadedAuthKey: String?
 
     /// All catalog-capable addons: user's cloud collection merged with Cinemeta.
-    func gatherAddons(authKey: String?) async -> [Addon] {
+    func gatherAddons(authKey: String?, force: Bool = false) async -> [Addon] {
+        if !force, isLoaded, loadedAuthKey == authKey {
+            return addons
+        }
+        let key = LoadKey(authKey: authKey, force: force)
+        if let loadTask, loadTask.key == key {
+            return await loadTask.task.value
+        }
+
+        loadTask?.task.cancel()
+        let existing = loadedAuthKey == authKey ? addons : []
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return [] }
+            return await self.fetchAddons(authKey: authKey, existing: existing)
+        }
+        loadTask = InFlightLoad(key: key, generation: generation, task: task)
+        let result = await task.value
+        if loadTask?.key == key, loadTask?.generation == generation {
+            loadTask = nil
+        }
+        return result
+    }
+
+    private func fetchAddons(authKey: String?, existing: [Addon]) async -> [Addon] {
         var collected: [Addon] = []
         if let authKey {
             do {
                 collected = try await AddonClient.shared.addonCollection(authKey: authKey)
-                guard authKey == AuthStore.shared.authKey else { return [] }
+                guard !Task.isCancelled, authKey == AuthStore.shared.authKey else { return [] }
                 errorMessage = nil
                 AddonManager.shared.applySyncedAddons(collected, authKey: authKey)
             } catch {
@@ -35,34 +73,48 @@ final class CatalogStore: ObservableObject {
                 // A transient refresh failure should not discard a collection
                 // that was already synced during this session.
                 collected = AddonManager.shared.cloudAddons
+                if collected.isEmpty {
+                    collected = existing.filter { $0.manifest.id != Self.cinemetaManifest.id }
+                }
             }
         } else {
             errorMessage = nil
         }
-        let seen = Set(collected.map(\.transportUrl))
         let cinemeta = Addon(
             transportUrl: AddonClient.cinemetaBase + "/manifest.json",
             manifest: Self.cinemetaManifest,
             flags: AddonFlags(official: true, protected: false)
         )
-        if !seen.contains(cinemeta.transportUrl) {
-            collected.append(cinemeta)
+        if let existingIndex = collected.firstIndex(where: {
+            $0.manifest.id == cinemeta.manifest.id
+                || AddonClient.baseURL(for: $0.transportUrl) == AddonClient.cinemetaBase
+        }) {
+            let installedCinemeta = collected.remove(at: existingIndex)
+            collected.insert(installedCinemeta, at: 0)
+        } else {
+            collected.insert(cinemeta, at: 0)
         }
-        guard authKey == AuthStore.shared.authKey else { return [] }
+        guard !Task.isCancelled, authKey == AuthStore.shared.authKey else { return [] }
         self.addons = collected
         self.isLoaded = true
+        self.loadedAuthKey = authKey
         return collected
     }
 
     func invalidate() {
+        loadTask?.task.cancel()
+        loadTask = nil
+        loadGeneration &+= 1
         isLoaded = false
     }
 
     func reset() {
-        loadTask?.cancel()
+        loadTask?.task.cancel()
         loadTask = nil
+        loadGeneration &+= 1
         addons = []
         isLoaded = false
+        loadedAuthKey = nil
         errorMessage = nil
     }
 
@@ -183,6 +235,16 @@ final class CatalogStore: ObservableObject {
         )
         let m = (try? await movies) ?? []
         let s = (try? await series) ?? []
-        return m + s
+        return Self.interleavedSearchResults(movies: m, series: s)
+    }
+
+    nonisolated static func interleavedSearchResults(movies: [Meta], series: [Meta]) -> [Meta] {
+        var results: [Meta] = []
+        results.reserveCapacity(movies.count + series.count)
+        for index in 0..<max(movies.count, series.count) {
+            if index < movies.count { results.append(movies[index]) }
+            if index < series.count { results.append(series[index]) }
+        }
+        return results
     }
 }

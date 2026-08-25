@@ -5,6 +5,7 @@ struct StreamsSheet: View {
 
     @StateObject private var engine = StreamEngine()
     @State private var playingStream: ScoredStream?
+    @State private var selectedAddonId: String?
 
     private let tierColors: [String: Color] = [
         "4K": .purple,
@@ -18,7 +19,7 @@ struct StreamsSheet: View {
         Group {
             if engine.isLoading && engine.streams.isEmpty {
                 loadingState
-            } else if engine.streams.isEmpty {
+            } else if displayedStreams.isEmpty {
                 emptyState
             } else {
                 streamList
@@ -27,6 +28,11 @@ struct StreamsSheet: View {
         .background(Theme.background)
         .navigationTitle("Streams")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                addonFilter
+            }
+        }
         .task(id: target) {
             await engine.load(target: target)
         }
@@ -46,7 +52,47 @@ struct StreamsSheet: View {
             if case .done = $0.state { return true }
             return false
         }.count
-        return "\(target.title) · \(engine.streams.count) sources · \(done)/\(engine.progress.count) addons"
+        return "\(target.title) · \(displayedStreams.count) sources · \(done)/\(engine.progress.count) addons"
+    }
+
+    private var displayedStreams: [ScoredStream] {
+        guard let selectedAddonId else { return engine.streams }
+        return engine.streams.filter { $0.raw.addonId == selectedAddonId }
+    }
+
+    private var selectedAddonName: String {
+        guard let selectedAddonId else { return "All addons" }
+        return engine.availableAddons.first { $0.id == selectedAddonId }?.displayName ?? "Addon"
+    }
+
+    private var addonFilter: some View {
+        Menu {
+            Button {
+                selectedAddonId = nil
+            } label: {
+                if selectedAddonId == nil {
+                    Label("All addons", systemImage: "checkmark")
+                } else {
+                    Text("All addons")
+                }
+            }
+
+            ForEach(engine.availableAddons) { addon in
+                Button {
+                    selectedAddonId = addon.id
+                } label: {
+                    if selectedAddonId == addon.id {
+                        Label(addon.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(addon.displayName)
+                    }
+                }
+            }
+        } label: {
+            Label(selectedAddonName, systemImage: "line.3.horizontal.decrease.circle")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(engine.availableAddons.count < 2)
     }
 
     private var loadingState: some View {
@@ -67,9 +113,9 @@ struct StreamsSheet: View {
             Image(systemName: engine.errorMessage == nil ? "water.waves.slash" : "exclamationmark.triangle")
                 .font(.system(size: 40))
                 .foregroundColor(Theme.textSecondary)
-            Text(emptyTitle)
+            Text(filteredEmptyTitle)
                 .font(.title3.bold())
-            Text(emptyMessage)
+            Text(filteredEmptyMessage)
                 .font(.subheadline)
                 .foregroundColor(Theme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -92,10 +138,24 @@ struct StreamsSheet: View {
         return "Your \(engine.progress.count) synced streaming addon(s) returned no sources for this title."
     }
 
+    private var filteredEmptyTitle: String {
+        if selectedAddonId != nil, engine.streams.isEmpty == false, displayedStreams.isEmpty {
+            return "No streams from \(selectedAddonName)"
+        }
+        return emptyTitle
+    }
+
+    private var filteredEmptyMessage: String {
+        if selectedAddonId != nil, engine.streams.isEmpty == false, displayedStreams.isEmpty {
+            return "Choose All addons or another installed streaming addon."
+        }
+        return emptyMessage
+    }
+
     private var streamList: some View {
             ScrollView {
             LazyVStack(spacing: 10) {
-                ForEach(engine.streams) { scored in
+                ForEach(displayedStreams) { scored in
                     StreamRow(scored: scored, tierColor: tierColors[scored.tierLabel] ?? Color(white: 0.3))
                         .onTapGesture {
                             guard scored.playable else { return }

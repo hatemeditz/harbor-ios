@@ -23,6 +23,7 @@ struct RawStream: Codable {
     let sources: [String]?
 
     /// Set after fetch — which addon produced this stream.
+    var addonId: String? = nil
     var addonName: String?
 }
 

@@ -146,6 +146,7 @@ struct DebridSetupView: View {
             }
 
             syncedStreamingAddons
+            syncedSubtitleAddons
 
             Section {
                 ForEach(DebridProvider.allCases) { provider in
@@ -231,6 +232,24 @@ struct DebridSetupView: View {
         } footer: {
             if !manager.syncedStreamAddons.isEmpty {
                 Text("Harbor uses these addons and their configured transport URLs automatically. You do not need to reinstall them or enter the debrid key again.")
+            }
+        }
+    }
+
+    private var syncedSubtitleAddons: some View {
+        Section("Subtitle addons") {
+            if manager.isLoading && manager.syncedSubtitleAddons.isEmpty {
+                ProgressView().tint(Theme.accent)
+                    .frame(maxWidth: .infinity)
+            } else if manager.syncedSubtitleAddons.isEmpty {
+                Text("No subtitle addon was found in your Stremio account.")
+                    .font(.subheadline)
+                    .foregroundColor(Theme.textSecondary)
+            } else {
+                ForEach(manager.syncedSubtitleAddons) { addon in
+                    Label(addon.displayName, systemImage: "captions.bubble.fill")
+                        .foregroundColor(Theme.textPrimary)
+                }
             }
         }
     }

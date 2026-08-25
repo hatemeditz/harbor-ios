@@ -13,21 +13,26 @@ final class HomeViewModel: ObservableObject {
         await load()
     }
 
-    func load() async {
+    func load(forceAddonRefresh: Bool = false) async {
+        guard !isLoading else { return }
         isLoading = true
         defer {
             isLoading = false
             loadedOnce = true
         }
 
-        let addons = await CatalogStore.shared.gatherAddons(authKey: AuthStore.shared.authKey)
+        let addons = await CatalogStore.shared.gatherAddons(
+            authKey: AuthStore.shared.authKey,
+            force: forceAddonRefresh
+        )
         let built = CatalogStore.shared.buildRails(from: addons, maxRails: 10)
         guard !built.isEmpty else {
-            rails = []
+            if rails.isEmpty { hero = nil }
             return
         }
-        rails = built
 
+        var pages = Array(repeating: [Meta](), count: built.count)
+        var publishedInitialRail = false
         await withTaskGroup(of: (Int, [Meta]).self) { group in
             for (index, rail) in built.enumerated() {
                 group.addTask {
@@ -41,15 +46,30 @@ final class HomeViewModel: ObservableObject {
                 }
             }
             for await (index, metas) in group {
-                guard index < rails.count else { continue }
-                rails[index].metas = Array(metas.prefix(24))
-                if hero == nil, let candidate = metas.first {
-                    hero = candidate
+                guard index < pages.count else { continue }
+                pages[index] = Array(metas.prefix(24))
+                if rails.isEmpty, !publishedInitialRail,
+                   built[index].base == AddonClient.cinemetaBase,
+                   !pages[index].isEmpty {
+                    var firstRail = built[index]
+                    firstRail.metas = pages[index]
+                    rails = [firstRail]
+                    hero = pages[index].first
+                    publishedInitialRail = true
                 }
             }
         }
-        // Drop rails that came back empty.
-        rails.removeAll { $0.metas.isEmpty }
+
+        let loaded = built.enumerated().compactMap { index, rail -> Rail? in
+            guard !pages[index].isEmpty else { return nil }
+            var populated = rail
+            populated.metas = pages[index]
+            return populated
+        }
+        // Keep the last good catalog snapshot if a refresh temporarily fails.
+        guard !loaded.isEmpty else { return }
+        rails = loaded
+        hero = loaded.lazy.compactMap { $0.metas.first }.first
     }
 }
 
@@ -91,7 +111,7 @@ struct HomeView: View {
             .background(Theme.background)
             .navigationTitle("Home")
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(forceAddonRefresh: true)
                 if let authKey = AuthStore.shared.authKey {
                     await LibraryStore.shared.refresh(authKey: authKey, force: true)
                 }

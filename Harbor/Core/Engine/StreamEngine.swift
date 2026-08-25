@@ -15,6 +15,7 @@ final class StreamEngine: ObservableObject {
     }
 
     @Published var streams: [ScoredStream] = []
+    @Published private(set) var availableAddons: [Addon] = []
     @Published var progress: [AddonProgress] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -63,6 +64,7 @@ final class StreamEngine: ObservableObject {
         let stremioId = target.videoId ?? target.metaId
         let addons = await streamAddons(for: target)
         guard token == loadToken else { return }
+        availableAddons = addons
 
         if let syncError = CatalogStore.shared.errorMessage {
             errorMessage = "Could not sync the addons in your Stremio account: \(syncError)"
@@ -103,6 +105,7 @@ final class StreamEngine: ObservableObject {
 
                 var batch: [ScoredStream] = []
                 for var raw in (rawStreams ?? []) {
+                    raw.addonId = addonId
                     raw.addonName = progress.first { $0.id == addonId }?.name
                     nextId += 1
                     if let scored = StreamScorer.score(raw: raw, id: nextId) {

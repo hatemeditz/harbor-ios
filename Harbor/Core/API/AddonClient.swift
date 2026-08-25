@@ -119,6 +119,10 @@ final class AddonClient {
         try validatedURL("\(baseURL(for: base))/stream/\(encodePathValue(type))/\(encodePathValue(id)).json")
     }
 
+    static func subtitlesURL(base: String, type: String, id: String) throws -> URL {
+        try validatedURL("\(baseURL(for: base))/subtitles/\(encodePathValue(type))/\(encodePathValue(id)).json")
+    }
+
     private static func encodePathValue(_ value: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#&=%")

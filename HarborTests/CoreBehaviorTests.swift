@@ -117,6 +117,67 @@ final class AddonClientTests: XCTestCase {
         XCTAssertEqual(response.streams.count, 1)
         XCTAssertEqual(response.streams.first?.title, "Good")
     }
+
+    func testBuildsSubtitleURLForEpisodeVideoId() throws {
+        let url = try AddonClient.subtitlesURL(
+            base: "https://example.com/config/manifest.json",
+            type: "series",
+            id: "tt123:2:7"
+        )
+
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://example.com/config/subtitles/series/tt123:2:7.json"
+        )
+    }
+
+    func testSubtitleResponseSkipsMalformedEntries() throws {
+        let data = Data(#"{"subtitles":[{"id":"1","url":"https://example.com/en.srt","lang":"eng"},42,{"url":7}]}"#.utf8)
+        let response = try JSONDecoder().decode(SubtitleResponse.self, from: data)
+
+        XCTAssertEqual(response.subtitles.count, 1)
+        XCTAssertEqual(response.subtitles.first?.lang, "eng")
+    }
+}
+
+final class SubtitleAndSearchBehaviorTests: XCTestCase {
+    func testCanonicalizesAddonAndEmbeddedLanguageNames() {
+        XCTAssertEqual(SubtitleLanguages.canonicalCode("ger"), "de")
+        XCTAssertEqual(SubtitleLanguages.canonicalCode("pob"), "pt-BR")
+        XCTAssertEqual(SubtitleLanguages.canonicalCode("pt-BR"), "pt-BR")
+        XCTAssertEqual(SubtitleLanguages.code(forTrackName: "Track 2 - English"), "en")
+        XCTAssertEqual(SubtitleLanguages.code(forTrackName: "Track 3 [eng]"), "en")
+        XCTAssertEqual(SubtitleLanguages.code(forTrackName: "Sub (de)"), "de")
+        XCTAssertNil(SubtitleLanguages.code(forTrackName: "Disable"))
+    }
+
+    func testSearchInterleavesMoviesAndSeries() {
+        let movies = [meta(id: "m1", type: "movie"), meta(id: "m2", type: "movie")]
+        let series = [meta(id: "s1", type: "series"), meta(id: "s2", type: "series")]
+
+        let results = CatalogStore.interleavedSearchResults(movies: movies, series: series)
+
+        XCTAssertEqual(results.map(\.id), ["m1", "s1", "m2", "s2"])
+    }
+
+    private func meta(id: String, type: String) -> Meta {
+        Meta(
+            id: id,
+            type: type,
+            name: id,
+            poster: nil,
+            background: nil,
+            logo: nil,
+            description: nil,
+            releaseInfo: nil,
+            imdbRating: nil,
+            genres: nil,
+            runtime: nil,
+            country: nil,
+            network: nil,
+            videos: nil
+        )
+    }
 }
 
 final class ModelBehaviorTests: XCTestCase {

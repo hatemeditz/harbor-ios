@@ -4,17 +4,25 @@ import Foundation
 final class LibraryStore: ObservableObject {
     static let shared = LibraryStore()
 
-    @Published private(set) var items: [LibraryItem] = []
+    @Published private(set) var items: [LibraryItem] = [] {
+        didSet { rebuildIndexes() }
+    }
     @Published private(set) var isLoading = false
     @Published private(set) var lastSync: Date?
     @Published private(set) var errorMessage: String?
 
     private var mutationTasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
+    private var metadataTask: Task<Void, Never>?
+    private var itemsById: [String: LibraryItem] = [:]
+    private var continueWatchingCache: [LibraryItem] = []
+    private var watchlistCache: [LibraryItem] = []
 
     private init() {}
 
     func reset() {
         mutationTasks.values.forEach { $0.task.cancel() }
+        metadataTask?.cancel()
+        metadataTask = nil
         mutationTasks = [:]
         items = []
         isLoading = false
@@ -25,19 +33,25 @@ final class LibraryStore: ObservableObject {
     // MARK: - Queries
 
     var continueWatching: [LibraryItem] {
-        items
-            .filter(\.isContinueWatching)
-            .sorted { $0.sortTimestamp > $1.sortTimestamp }
+        continueWatchingCache
     }
 
     var watchlist: [LibraryItem] {
-        items
-            .filter(\.isInWatchlist)
-            .sorted { $0.sortTimestamp > $1.sortTimestamp }
+        watchlistCache
     }
 
     func item(id: String) -> LibraryItem? {
-        items.first { $0.id == id }
+        itemsById[id]
+    }
+
+    private func rebuildIndexes() {
+        itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        continueWatchingCache = items
+            .filter(\.isContinueWatching)
+            .sorted { $0.sortTimestamp > $1.sortTimestamp }
+        watchlistCache = items
+            .filter(\.isInWatchlist)
+            .sorted { $0.sortTimestamp > $1.sortTimestamp }
     }
 
     // MARK: - Sync
@@ -65,12 +79,77 @@ final class LibraryStore: ObservableObject {
             guard AuthStore.shared.authKey == authKey else { return }
             items = response.elements
             lastSync = Date()
+            scheduleMetadataEnrichment(authKey: authKey)
         } catch {
             // Keep stale data and allow the next refresh to retry immediately.
             if AuthStore.shared.authKey == authKey {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func scheduleMetadataEnrichment(authKey: String) {
+        metadataTask?.cancel()
+
+        var seen = Set<String>()
+        let prioritized = continueWatching + watchlist + items
+        let candidates = prioritized.filter { item in
+            guard seen.insert("\(item.id)|\(item.type)").inserted,
+                  item.id.hasPrefix("tt") else { return false }
+            return item.poster == nil || item.background == nil || item.name.isEmpty
+        }
+        .prefix(60)
+
+        guard !candidates.isEmpty else { return }
+        let requests = candidates.map { (id: $0.id, type: $0.type == "series" ? "series" : "movie") }
+        metadataTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.enrichMetadata(authKey: authKey, requests: requests)
+        }
+    }
+
+    private func enrichMetadata(
+        authKey: String,
+        requests: [(id: String, type: String)]
+    ) async {
+        var details: [(String, String, Meta)] = []
+        await withTaskGroup(of: (String, String, Meta?).self) { group in
+            for request in requests {
+                group.addTask {
+                    let meta = try? await AddonClient.shared.metaDetail(
+                        base: nil,
+                        type: request.type,
+                        id: request.id
+                    )
+                    return (request.id, request.type, meta)
+                }
+            }
+            for await (id, type, meta) in group {
+                if let meta { details.append((id, type, meta)) }
+            }
+        }
+
+        guard !Task.isCancelled, AuthStore.shared.authKey == authKey else { return }
+        var updated = items
+        var changed = false
+        for (id, type, meta) in details {
+            guard let index = updated.firstIndex(where: {
+                $0.id == id && ($0.type == "series" ? "series" : "movie") == type
+            }) else { continue }
+            if updated[index].name.isEmpty, !meta.name.isEmpty {
+                updated[index].name = meta.name
+                changed = true
+            }
+            if updated[index].poster == nil, let poster = meta.poster {
+                updated[index].poster = poster
+                changed = true
+            }
+            if updated[index].background == nil, let background = meta.background {
+                updated[index].background = background
+                changed = true
+            }
+        }
+        if changed { items = updated }
     }
 
     // MARK: - Mutations

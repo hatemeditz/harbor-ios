@@ -24,8 +24,8 @@ targets:
       path: Harbor/Info.plist
       properties:
         CFBundleDisplayName: Harbor
-        CFBundleShortVersionString: "0.9.3"
-        CFBundleVersion: "4"
+        CFBundleShortVersionString: "0.9.4"
+        CFBundleVersion: "5"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

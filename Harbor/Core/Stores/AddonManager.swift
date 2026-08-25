@@ -19,6 +19,13 @@ final class AddonManager: ObservableObject {
         }
     }
 
+    var syncedSubtitleAddons: [Addon] {
+        cloudAddons.filter { addon in
+            !(addon.manifest.behaviorHints?.configurationRequired ?? false)
+                && (addon.manifest.resources ?? []).contains { $0.typeName == "subtitles" }
+        }
+    }
+
     func hasEmbeddedDebridConfiguration(_ addon: Addon) -> Bool {
         let transport = (addon.transportUrl.removingPercentEncoding ?? addon.transportUrl).lowercased()
         return DebridProvider.allCases.contains { transport.contains("\($0.queryName)=") }
@@ -51,6 +58,7 @@ final class AddonManager: ObservableObject {
             let loaded = try await AddonClient.shared.addonCollection(authKey: authKey)
             guard AuthStore.shared.authKey == authKey else { return }
             cloudAddons = loaded
+            CatalogStore.shared.invalidate()
         } catch {
             guard AuthStore.shared.authKey == authKey else { return }
             errorMessage = error.localizedDescription
