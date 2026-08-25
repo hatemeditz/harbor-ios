@@ -55,6 +55,7 @@ final class HomeViewModel: ObservableObject {
 
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
+    @ObservedObject private var library = LibraryStore.shared
 
     var body: some View {
         NavigationStack {
@@ -68,7 +69,7 @@ struct HomeView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 180)
-                } else if viewModel.rails.isEmpty {
+                } else if viewModel.rails.isEmpty && library.continueWatching.isEmpty {
                     ContentUnavailableCompat(
                         icon: "sparkles.tv",
                         title: "No catalogs",
@@ -77,6 +78,9 @@ struct HomeView: View {
                     .padding(.top, 120)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 26) {
+                        if !library.continueWatching.isEmpty {
+                            continueWatchingRow
+                        }
                         ForEach(viewModel.rails) { rail in
                             RailRow(rail: rail)
                         }
@@ -87,9 +91,35 @@ struct HomeView: View {
             .background(Theme.background)
             .navigationTitle("Home")
             .refreshable { await viewModel.load() }
-            .task { await viewModel.loadIfNeeded() }
+            .task {
+                await viewModel.loadIfNeeded()
+                if let authKey = AuthStore.shared.authKey {
+                    await LibraryStore.shared.refresh(authKey: authKey)
+                }
+            }
             .navigationDestination(for: Meta.self) { meta in
                 DetailView(meta: meta)
+            }
+        }
+    }
+
+    private var continueWatchingRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Continue Watching")
+                .font(.headline)
+                .foregroundColor(Theme.textPrimary)
+                .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(library.continueWatching.prefix(20)) { item in
+                        NavigationLink(value: item.asMeta()) {
+                            ContinueWatchingCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
             }
         }
     }
