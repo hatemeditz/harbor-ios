@@ -3,13 +3,13 @@ import UIKit
 
 struct PlayerScreen: View {
     let streamURL: URL
-    let title: String
-    let target: StreamTarget
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var player = VLCPlayerController.shared
 
+    @State private var activeTitle: String
+    @State private var activeTarget: StreamTarget
     @State private var showControls = true
     @State private var controlsHideTask: Task<Void, Never>?
     @State private var syncCounter = 0
@@ -17,8 +17,15 @@ struct PlayerScreen: View {
     @State private var resumeApplied = false
     @State private var nextVideo: MetaVideo?
     @State private var showNextPrompt = false
+    @State private var persistenceTask: Task<Void, Never>?
 
     private let uiTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    init(streamURL: URL, title: String, target: StreamTarget) {
+        self.streamURL = streamURL
+        _activeTitle = State(initialValue: title)
+        _activeTarget = State(initialValue: target)
+    }
 
     var body: some View {
         ZStack {
@@ -74,29 +81,27 @@ struct PlayerScreen: View {
 
         scheduleControlsHide()
         loadNextEpisodeCandidate()
-
-        // Mark previous episode watched when auto-advancing target provided.
-        if (offset == 0) { /* nothing */ }
     }
 
     private func resumeOffset() -> TimeInterval {
-        guard let item = LibraryStore.shared.item(id: target.metaId),
+        guard let item = LibraryStore.shared.item(id: activeTarget.metaId),
               let state = item.state else { return 0 }
         let sameVideo: Bool
-        if let videoId = target.videoId {
+        if let videoId = activeTarget.videoId {
             sameVideo = state.videoId == videoId
         } else {
-            sameVideo = state.videoId == nil || state.videoId?.hasPrefix(target.metaId + ":") != true
+            sameVideo = state.videoId == nil || state.videoId?.hasPrefix(activeTarget.metaId + ":") != true
         }
-        guard sameVideo, let offset = state.timeOffset, offset > 30 else { return 0 }
-        return offset
+        guard sameVideo, let offset = state.timeOffset, offset > 30_000 else { return 0 }
+        return offset / 1000
     }
 
     private func loadNextEpisodeCandidate() {
-        guard target.type == "series", let currentVideoId = target.videoId else { return }
+        guard activeTarget.type == "series", let currentVideoId = activeTarget.videoId else { return }
+        let candidateTarget = activeTarget
         Task {
             let meta = try? await AddonClient.shared.metaDetail(
-                base: target.base, type: "series", id: target.metaId
+                base: candidateTarget.base, type: "series", id: candidateTarget.metaId
             )
             let videos = (meta?.videos ?? []).sorted {
                 ($0.season ?? 0, $0.episode ?? 0) < ($1.season ?? 0, $1.episode ?? 0)
@@ -115,20 +120,22 @@ struct PlayerScreen: View {
         syncCounter += 1
         let ratio = player.duration > 0 ? player.currentTime / player.duration : 0
 
-        if syncCounter % 10 == 0, player.isPlaying || player.state == .paused {
-            persistProgress(force: false)
-        }
-
-        if !markedWatched, player.duration > 0, ratio >= 0.9,
-           let authKey = AuthStore.shared.authKey {
-            markedWatched = true
-            Task {
-                await LibraryStore.shared.markWatched(
-                    authKey: authKey,
-                    metaId: target.metaId,
-                    videoId: target.videoId
-                )
+        if ratio >= 0.9 {
+            if !markedWatched, let authKey = AuthStore.shared.authKey {
+                markedWatched = true
+                let watchedTarget = activeTarget
+                let previous = persistenceTask
+                persistenceTask = Task {
+                    await previous?.value
+                    await LibraryStore.shared.markWatched(
+                        authKey: authKey,
+                        metaId: watchedTarget.metaId,
+                        videoId: watchedTarget.videoId
+                    )
+                }
             }
+        } else if syncCounter % 10 == 0, player.isPlaying || player.state == .paused {
+            persistProgress(force: false)
         }
 
         if player.state == .ended, nextVideo != nil {
@@ -145,17 +152,21 @@ struct PlayerScreen: View {
 
     private func persistProgress(force: Bool) {
         guard player.duration > 5, player.state != .errored else { return }
+        guard !markedWatched else { return }
         guard force || player.currentTime > 5 else { return }
         guard let authKey = AuthStore.shared.authKey else { return }
         let offset = player.currentTime
         let duration = player.duration
-        Task {
+        let progressTarget = activeTarget
+        let previous = persistenceTask
+        persistenceTask = Task {
+            await previous?.value
             await LibraryStore.shared.saveProgress(
                 authKey: authKey,
-                metaId: target.metaId,
-                videoId: target.videoId,
-                offset: offset,
-                duration: duration
+                metaId: progressTarget.metaId,
+                videoId: progressTarget.videoId,
+                offset: offset * 1000,
+                duration: duration * 1000
             )
         }
     }
@@ -184,14 +195,14 @@ struct PlayerScreen: View {
 
     private func playNext() {
         guard let next = nextVideo else { return }
+        persistProgress(force: true)
         showNextPrompt = false
-        let metaId = next.id.split(separator: ":").first.map(String.init) ?? target.metaId
         let nextTarget = StreamTarget(
-            metaId: metaId,
+            metaId: activeTarget.metaId,
             type: "series",
             title: next.displayTitle,
             videoId: next.id,
-            base: target.base
+            base: activeTarget.base
         )
 
         Task {
@@ -204,7 +215,10 @@ struct PlayerScreen: View {
                 syncCounter = 0
                 resumeApplied = true
                 nextVideo = nil
+                activeTitle = next.displayTitle
+                activeTarget = nextTarget
                 player.load(url: url, startAt: 0)
+                loadNextEpisodeCandidate()
             }
         }
     }
@@ -234,11 +248,11 @@ struct PlayerScreen: View {
                     .background(.black.opacity(0.45), in: Circle())
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(activeTitle)
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                if let videoId = target.videoId {
+                if let videoId = activeTarget.videoId {
                     Text(videoId.components(separatedBy: ":").suffix(2).joined(separator: " · ").replacingOccurrences(of: ":", with: " "))
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.7))

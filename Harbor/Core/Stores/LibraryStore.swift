@@ -7,8 +7,20 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var items: [LibraryItem] = []
     @Published private(set) var isLoading = false
     @Published private(set) var lastSync: Date?
+    @Published private(set) var errorMessage: String?
+
+    private var mutationTasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
 
     private init() {}
+
+    func reset() {
+        mutationTasks.values.forEach { $0.task.cancel() }
+        mutationTasks = [:]
+        items = []
+        isLoading = false
+        lastSync = nil
+        errorMessage = nil
+    }
 
     // MARK: - Queries
 
@@ -34,22 +46,19 @@ final class LibraryStore: ObservableObject {
         if isLoading { return }
         if !force, let lastSync, Date().timeIntervalSince(lastSync) < 60 { return }
         isLoading = true
-        defer {
-            isLoading = false
-            lastSync = Date()
-        }
+        errorMessage = nil
+        defer { isLoading = false }
 
         do {
-            struct MetaPairs: Decodable {
-                let pairs: [[String]]
-            }
             let rawIds: [[String]] = try await StremioAPI.shared.call(
                 "datastoreMeta",
                 body: ["authKey": authKey, "collection": "libraryItem"]
             )
+            guard AuthStore.shared.authKey == authKey else { return }
             let ids = rawIds.compactMap { $0.first }
             guard !ids.isEmpty else {
                 items = []
+                lastSync = Date()
                 return
             }
             var fetched: [LibraryItem] = []
@@ -65,9 +74,14 @@ final class LibraryStore: ObservableObject {
                 )
                 fetched += page
             }
+            guard AuthStore.shared.authKey == authKey else { return }
             items = fetched
+            lastSync = Date()
         } catch {
-            // Keep stale data on failure; surfaced via lastSync.
+            // Keep stale data and allow the next refresh to retry immediately.
+            if AuthStore.shared.authKey == authKey {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -82,8 +96,16 @@ final class LibraryStore: ObservableObject {
     ) async {
         await mutate(authKey: authKey, id: metaId) { item in
             var state = item.state ?? LibraryState()
-            state.timeOffset = offset
-            state.duration = max(duration, state.duration ?? 0)
+            let videoChanged = videoId != nil
+                && state.videoId != nil
+                && state.videoId != videoId
+            if videoChanged {
+                state.overallTimeWatched = (state.overallTimeWatched ?? 0) + (state.timeWatched ?? 0)
+                state.flaggedWatched = 0
+            }
+            state.timeOffset = (state.flaggedWatched ?? 0) > 0 ? 0 : offset
+            state.timeWatched = offset
+            state.duration = videoChanged ? duration : max(duration, state.duration ?? 0)
             if let videoId {
                 state.videoId = videoId
                 let parts = videoId.split(separator: ":")
@@ -105,7 +127,7 @@ final class LibraryStore: ObservableObject {
     func markWatched(authKey: String, metaId: String, videoId: String?) async {
         await mutate(authKey: authKey, id: metaId) { item in
             var state = item.state ?? LibraryState()
-            state.flaggedWatched = Date().timeIntervalSince1970 * 1000
+            state.flaggedWatched = 1
             state.timeOffset = 0
             if let videoId { state.videoId = videoId }
             state.timesWatched = (state.timesWatched ?? 0) + 1
@@ -132,14 +154,36 @@ final class LibraryStore: ObservableObject {
 
     func removeContinueWatching(authKey: String, id: String) async {
         await mutate(authKey: authKey, id: id) { item in
+            var state = item.state ?? LibraryState()
+            state.timeOffset = 0
+            item.state = state
             item.removed = true
-            item.temp = true
+            item.temp = false
         }
     }
 
     /// Fetch-or-create the cloud item, apply mutation, persist via datastorePut,
     /// and update local cache optimistically.
     private func mutate(
+        authKey: String,
+        id: String,
+        change: @escaping (inout LibraryItem) -> Void
+    ) async {
+        let previous = mutationTasks[id]?.task
+        let token = UUID()
+        let task = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await performMutation(authKey: authKey, id: id, change: change)
+        }
+        mutationTasks[id] = (token, task)
+        await task.value
+        if mutationTasks[id]?.token == token {
+            mutationTasks[id] = nil
+        }
+    }
+
+    private func performMutation(
         authKey: String,
         id: String,
         change: @escaping (inout LibraryItem) -> Void
@@ -177,20 +221,34 @@ final class LibraryStore: ObservableObject {
         if item.behaviorHints == nil { item.behaviorHints = LibraryBehaviorHints() }
         if item.posterShape == nil { item.posterShape = "poster" }
 
-        struct PutOK: Decodable {}
-        let _: PutOK? = try? await StremioAPI.shared.call(
-            "datastorePut",
-            body: [
-                "authKey": authKey,
-                "collection": "libraryItem",
-                "changes": [item],
-            ]
-        )
+        do {
+            // JSONSerialization cannot encode an arbitrary Codable struct
+            // embedded in [String: Any], so bridge it through JSONEncoder.
+            let encoded = try JSONEncoder().encode(item)
+            guard let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+                throw StremioAPIError.decoding
+            }
+            try await StremioAPI.shared.callIgnoringResult(
+                "datastorePut",
+                body: [
+                    "authKey": authKey,
+                    "collection": "libraryItem",
+                    "changes": [object],
+                ]
+            )
 
-        if let index = items.firstIndex(where: { $0.id == id }) {
-            items[index] = item
-        } else {
-            items.append(item)
+            guard AuthStore.shared.authKey == authKey else { return }
+            errorMessage = nil
+            if let index = items.firstIndex(where: { $0.id == id }) {
+                items[index] = item
+            } else {
+                items.append(item)
+            }
+        } catch {
+            // Do not claim a local success when the cloud write failed.
+            if AuthStore.shared.authKey == authKey {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

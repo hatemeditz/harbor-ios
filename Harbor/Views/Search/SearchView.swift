@@ -9,11 +9,16 @@ final class SearchViewModel: ObservableObject {
 
     private var debounceTask: Task<Void, Never>?
     private var pageTask: Task<Void, Never>?
+    private var nextSkip = 50
+    private var canLoadMore = false
 
     func queryChanged() {
         debounceTask?.cancel()
-        let q = query
-        guard q.trimmingCharacters(in: .whitespaces).count >= 2 else {
+        pageTask?.cancel()
+        nextSkip = 50
+        canLoadMore = false
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= 2 else {
             results = []
             hasSearched = false
             isSearching = false
@@ -22,30 +27,45 @@ final class SearchViewModel: ObservableObject {
         debounceTask = Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
-            await search(skip: 0, appending: false)
+            await search(query: q, skip: 0, appending: false)
         }
     }
 
     func loadMoreIfNeeded(current: Meta) {
         guard let last = results.last, current.id == last.id, current.type == last.type,
-              !isSearching else { return }
+              !isSearching, canLoadMore else { return }
         pageTask?.cancel()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let skip = nextSkip
         pageTask = Task {
-            await search(skip: results.count, appending: true)
+            await search(query: q, skip: skip, appending: true)
         }
     }
 
-    private func search(skip: Int, appending: Bool) async {
+    private func search(query requestedQuery: String, skip: Int, appending: Bool) async {
         isSearching = true
-        defer { isSearching = false }
+        defer {
+            if query.trimmingCharacters(in: .whitespacesAndNewlines) == requestedQuery {
+                isSearching = false
+            }
+        }
         hasSearched = true
-        let found = await CatalogStore.shared.search(query: query, skip: skip)
-        guard !Task.isCancelled else { return }
+        let found = await CatalogStore.shared.search(query: requestedQuery, skip: skip)
+        guard !Task.isCancelled,
+              query.trimmingCharacters(in: .whitespacesAndNewlines) == requestedQuery
+        else { return }
+        var seen = appending ? Set(results.map { "\($0.id)|\($0.type)" }) : Set<String>()
+        let unique = found.filter { meta in
+            seen.insert("\(meta.id)|\(meta.type)").inserted
+        }
         if appending {
-            let existing = Set(results.map { "\($0.id)|\($0.type)" })
-            results += found.filter { !existing.contains("\($0.id)|\($0.type)") }
+            results += unique
+            canLoadMore = !unique.isEmpty
+            nextSkip += 50
         } else {
-            results = found
+            results = unique
+            nextSkip = 50
+            canLoadMore = !unique.isEmpty
         }
     }
 }

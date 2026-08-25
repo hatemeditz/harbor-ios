@@ -45,9 +45,11 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            Image(systemName: "anchor")
-                .font(.system(size: 52, weight: .semibold))
-                .foregroundColor(Theme.accent)
+            Image("HarborMark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 92, height: 84)
+                .accessibilityLabel("Harbor")
             Text("Harbor")
                 .font(.system(size: 34, weight: .bold))
             Text("Sign in with your Stremio account to sync your library and addons.")

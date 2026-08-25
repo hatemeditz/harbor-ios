@@ -34,14 +34,20 @@ final class CatalogStore: ObservableObject {
         if !seen.contains(cinemeta.transportUrl) {
             collected.append(cinemeta)
         }
-        await MainActor.run {
-            self.addons = collected
-            self.isLoaded = true
-        }
+        guard authKey == AuthStore.shared.authKey else { return [] }
+        self.addons = collected
+        self.isLoaded = true
         return collected
     }
 
     func invalidate() {
+        isLoaded = false
+    }
+
+    func reset() {
+        loadTask?.cancel()
+        loadTask = nil
+        addons = []
         isLoaded = false
     }
 

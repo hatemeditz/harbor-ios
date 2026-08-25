@@ -90,7 +90,12 @@ struct HomeView: View {
             }
             .background(Theme.background)
             .navigationTitle("Home")
-            .refreshable { await viewModel.load() }
+            .refreshable {
+                await viewModel.load()
+                if let authKey = AuthStore.shared.authKey {
+                    await LibraryStore.shared.refresh(authKey: authKey, force: true)
+                }
+            }
             .task {
                 await viewModel.loadIfNeeded()
                 if let authKey = AuthStore.shared.authKey {

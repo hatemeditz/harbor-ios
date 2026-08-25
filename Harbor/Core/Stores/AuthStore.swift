@@ -29,24 +29,35 @@ final class AuthStore: ObservableObject {
     }
 
     func signOut() {
-        if let authKey {
-            Task.detached {
-                _ = try? await StremioAPI.shared.logout(authKey: authKey)
-            }
+        let keyToRevoke = authKey
+        clearLocalSession()
+        guard let keyToRevoke else { return }
+        Task {
+            _ = try? await StremioAPI.shared.logout(authKey: keyToRevoke)
         }
+    }
+
+    private func clearLocalSession() {
         Keychain.delete(account: Self.authKeyAccount)
         UserDefaults.standard.removeObject(forKey: Self.userCacheKey)
         authKey = nil
         user = nil
+        LibraryStore.shared.reset()
+        CatalogStore.shared.reset()
+        AddonManager.shared.reset()
     }
 
     private func refreshUser() {
         guard let authKey else { return }
-        Task.detached { [weak self] in
-            guard let fresh = try? await StremioAPI.shared.getUser(authKey: authKey) else { return }
-            await MainActor.run {
+        Task { [weak self] in
+            do {
+                let fresh = try await StremioAPI.shared.getUser(authKey: authKey)
+                guard self?.authKey == authKey else { return }
                 self?.user = fresh
                 Self.cacheUser(fresh)
+            } catch let error as StremioAPIError where error.invalidatesSession {
+                guard self?.authKey == authKey else { return }
+                self?.clearLocalSession()
             }
         }
     }

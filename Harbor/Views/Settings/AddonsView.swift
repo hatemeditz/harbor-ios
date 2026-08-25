@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AddonsView: View {
-    @StateObject private var manager = AddonManager()
+    @ObservedObject private var manager = AddonManager.shared
     @State private var newAddonURL = ""
 
     var body: some View {
@@ -125,7 +125,7 @@ struct AddonsView: View {
 }
 
 struct DebridSetupView: View {
-    @StateObject private var manager = AddonManager()
+    @ObservedObject private var manager = AddonManager.shared
 
     @State private var keys: [DebridProvider: String] = [:]
     @State private var isInstalling = false

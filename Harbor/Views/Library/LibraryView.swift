@@ -17,6 +17,17 @@ struct LibraryView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
+                if let error = library.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                }
+
                 switch segment {
                 case 0: grid(library.watchlist, emptyIcon: "bookmark.slash", emptyText: "Your watchlist is empty")
                 default: cwList
@@ -24,7 +35,7 @@ struct LibraryView: View {
             }
             .background(Theme.background)
             .navigationTitle("Library")
-            .refreshable { await sync() }
+            .refreshable { await sync(force: true) }
             .task { await sync() }
             .navigationDestination(for: MetaNavigation.self) { nav in
                 DetailView(nav: nav)
@@ -32,9 +43,9 @@ struct LibraryView: View {
         }
     }
 
-    private func sync() async {
+    private func sync(force: Bool = false) async {
         guard let authKey = AuthStore.shared.authKey else { return }
-        await library.refresh(authKey: authKey)
+        await library.refresh(authKey: authKey, force: force)
     }
 
     @ViewBuilder

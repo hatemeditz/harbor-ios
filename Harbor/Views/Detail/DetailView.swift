@@ -156,7 +156,7 @@ struct DetailView: View {
             }
             .buttonStyle(.plain)
 
-            if displayMeta.type == "movie" || seasons.count == 1 {
+            if displayMeta.type == "movie" {
                 NavigationLink(value: StreamTarget(
                     metaId: displayMeta.id,
                     type: displayMeta.type,
@@ -241,7 +241,12 @@ struct DetailView: View {
 
             LazyVStack(spacing: 10) {
                 ForEach(videos.filter { ($0.season ?? 1) == activeSeason }) { video in
-                    EpisodeRow(video: video, watched: isEpisodeWatched(video), base: nav.base)
+                    EpisodeRow(
+                        video: video,
+                        metaId: displayMeta.id,
+                        watched: isEpisodeWatched(video),
+                        base: nav.base
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -276,13 +281,14 @@ struct Badge: View {
 
 struct EpisodeRow: View {
     let video: MetaVideo
+    let metaId: String
     let watched: Bool
     let base: String?
 
     var body: some View {
         NavigationLink(
             value: StreamTarget(
-                metaId: video.id.split(separator: ":").first.map(String.init) ?? video.id,
+                metaId: metaId,
                 type: "series",
                 title: video.displayTitle,
                 videoId: video.id,

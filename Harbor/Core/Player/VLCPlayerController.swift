@@ -31,6 +31,8 @@ final class VLCPlayerController: NSObject, ObservableObject {
         let media = VLCMedia(url: url)
         media.addOption(":network-caching=2000")
         mediaPlayer.media = media
+        currentTime = 0
+        duration = 0
         state = .buffering
         mediaPlayer.play()
         if seconds > 5 {
@@ -64,7 +66,7 @@ final class VLCPlayerController: NSObject, ObservableObject {
     func seek(to seconds: TimeInterval) {
         guard duration > 0 else { return }
         let clamped = max(0, min(seconds, duration - 1))
-        mediaPlayer.time = VLCTime(int: Int32(clamped))
+        mediaPlayer.time = VLCTime(int: Int32(clamped * 1000))
         currentTime = clamped
     }
 
@@ -79,8 +81,8 @@ final class VLCPlayerController: NSObject, ObservableObject {
 
     private func refreshFromPlayer() {
         let mediaLength = mediaPlayer.media?.length.intValue ?? 0
-        duration = TimeInterval(mediaLength)
-        currentTime = TimeInterval(mediaPlayer.time.intValue)
+        duration = TimeInterval(mediaLength) / 1000
+        currentTime = TimeInterval(mediaPlayer.time.intValue) / 1000
 
         let newState: PlayState
         switch mediaPlayer.state {

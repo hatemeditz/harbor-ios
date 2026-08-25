@@ -98,13 +98,15 @@ enum TitleParser {
 
         // Size
         if let match = combined.range(
-            of: "[0-9]+(?:\\.[0-9]+)?\\s*(gb|mb)",
+            of: "[0-9]+(?:[\\.,][0-9]+)?\\s*(gb|mb)\\b",
             options: .regularExpression
         ) {
-            let token = combined[match]
-            let parts = token.split(separator: " ")
-            if let value = Double(parts.first.map(String.init)?.replacingOccurrences(of: ",", with: ".") ?? "") {
-                if token.hasSuffix("gb") || token.hasSuffix("gb.") {
+            let token = String(combined[match])
+            let number = token
+                .replacingOccurrences(of: "[^0-9,.]", with: "", options: .regularExpression)
+                .replacingOccurrences(of: ",", with: ".")
+            if let value = Double(number) {
+                if token.hasSuffix("gb") {
                     out.sizeGB = value
                 } else {
                     out.sizeGB = value / 1024.0

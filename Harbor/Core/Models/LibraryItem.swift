@@ -125,6 +125,7 @@ extension LibraryItem {
     var isContinueWatching: Bool {
         if removed && !temp { return false }
         guard let state else { return false }
+        if (state.flaggedWatched ?? 0) > 0 { return false }
         if (state.timeOffset ?? 0) > 0 { return true }
         return false
     }

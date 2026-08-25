@@ -74,7 +74,7 @@ final class StreamEngine: ObservableObject {
                 group.addTask {
                     do {
                         let response: StreamResponse = try await AddonClient.shared.fetchJSON(
-                            AddonClient.streamURL(
+                            try AddonClient.streamURL(
                                 base: AddonClient.baseURL(for: addon.transportUrl),
                                 type: target.type,
                                 id: stremioId

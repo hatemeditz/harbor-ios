@@ -60,7 +60,7 @@ struct ContinueWatchingCard: View {
         guard let state = item.state else { return "" }
         let offset = state.timeOffset ?? 0
         guard offset > 0 else { return "Start over" }
-        let minutes = Int(offset / 60)
+        let minutes = Int(offset / 60_000)
         let hours = minutes / 60
         let mins = minutes % 60
         return hours > 0 ? "\(hours)h \(mins)m watched" : "\(mins)m watched"
