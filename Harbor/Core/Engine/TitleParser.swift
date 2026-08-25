@@ -8,7 +8,7 @@ enum TitleParser {
         let combined = "\(title ?? "") \(description ?? "")".lowercased()
 
         // Junk filter
-        let junkTokens = ["sample", "trailer", "\bproof\b", "extras", "-scenelinks", "rarbg.com"]
+        let junkTokens = ["sample", "trailer", "\\bproof\\b", "extras", "-scenelinks", "rarbg.com"]
         for token in junkTokens where combined.range(of: token, options: .regularExpression) != nil {
             out.isJunk = true
             break

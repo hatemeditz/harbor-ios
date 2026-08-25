@@ -90,7 +90,7 @@ final class StreamEngine: ObservableObject {
             for await (addonId, rawStreams, ok) in group {
                 guard token == loadToken else { return }
                 if let index = progress.firstIndex(where: { $0.id == addonId }) {
-                    progress[index].state = ok ? .done(rawStreams.count) : .failed
+                    progress[index].state = ok ? .done(rawStreams?.count ?? 0) : .failed
                 }
 
                 var batch: [ScoredStream] = []
