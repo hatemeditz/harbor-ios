@@ -172,8 +172,8 @@ final class ModelBehaviorTests: XCTestCase {
         mtime: String = "2026-08-25T12:34:56Z",
         temp: Bool = false,
         state: LibraryState?
-    ) -> LibraryItem {
-        LibraryItem(
+    ) -> Harbor.LibraryItem {
+        Harbor.LibraryItem(
             id: "tt123",
             type: "series",
             name: "Example",
