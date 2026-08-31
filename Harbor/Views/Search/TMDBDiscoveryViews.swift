@@ -66,7 +66,7 @@ struct TMDBStreamingProvidersRow: View {
         VStack(alignment: .leading, spacing: 12) {
             HarborSectionHeader(
                 title: "Your Streaming",
-                subtitle: "Most watched in your region"
+                subtitle: "Popular titles available in your region"
             )
             .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
 
@@ -432,7 +432,7 @@ struct TMDBServiceView: View {
                     if scope != .series, !viewModel.catalog.movies.isEmpty {
                         AdaptiveMediaRail(
                             title: "Top 10 Movies on \(provider.name)",
-                            subtitle: "Most watched in \(region)",
+                            subtitle: "Ranked by TMDB popularity in \(region)",
                             metas: viewModel.catalog.movies,
                             source: .home,
                             ranked: true
@@ -441,7 +441,7 @@ struct TMDBServiceView: View {
                     if scope != .movies, !viewModel.catalog.series.isEmpty {
                         AdaptiveMediaRail(
                             title: "Top 10 Series on \(provider.name)",
-                            subtitle: "Most watched in \(region)",
+                            subtitle: "Ranked by TMDB popularity in \(region)",
                             metas: viewModel.catalog.series,
                             source: .home,
                             ranked: true
@@ -486,9 +486,12 @@ struct TMDBServiceView: View {
                 Text(provider.name)
                     .font(.system(size: horizontalSizeClass == .regular ? 46 : 34, weight: .black, design: .rounded))
                     .foregroundColor(.white)
-                Text("The most-watched movies and series on \(provider.name) right now in \(region).")
+                Text("Popular movies and series available on \(provider.name) right now in \(region), ranked by TMDB popularity.")
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.72))
+                Text("Streaming availability data by JustWatch")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.5))
             }
             .padding(22)
         }

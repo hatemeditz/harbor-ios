@@ -46,7 +46,7 @@ Install [AltServer](https://altstore.io), place the IPA in your phone's folder /
    - Harbor still works with Cinemeta when no TMDB key is configured
 5. Browse → tap a title → **Play** → pick a ranked stream
 
-**Top 10 Trending This Week** comes from TMDB's weekly trending endpoint. **Your Streaming** uses TMDB watch-provider discovery for the selected catalog region and opens separate Top 10 movie and series pages for Netflix, Disney+, Prime Video, Apple TV+, Max, and Hulu.
+**Top 10 Trending This Week** comes from TMDB's weekly trending endpoint. **Your Streaming** uses TMDB watch-provider discovery for the selected catalog region and opens separate Top 10 movie and series pages for Netflix, Disney+, Prime Video, Apple TV+, Max, and Hulu. Provider pages rank available titles by TMDB popularity; they do not represent private viewing totals from those services. Streaming availability data is supplied by JustWatch through TMDB.
 
 The interface uses a compact bottom tab bar on iPhone and a native sidebar with larger heroes, rails, cards, and grids on iPad.
 
