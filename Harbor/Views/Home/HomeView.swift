@@ -70,8 +70,14 @@ final class HomeViewModel: ObservableObject {
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @ObservedObject private var library = LibraryStore.shared
-    @ObservedObject private var catalogStore = CatalogStore.shared
+    @ObservedObject private var tmdbSettings = TMDBSettingsStore.shared
+    @ObservedObject private var tmdbCatalog = TMDBCatalogStore.shared
+    @AppStorage("harbor.region") private var region = "US"
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var featuredIndex = 0
+
+    private var horizontalPadding: CGFloat { horizontalSizeClass == .regular ? 28 : 16 }
+    private var heroHeight: CGFloat { horizontalSizeClass == .regular ? 530 : 450 }
 
     var body: some View {
         NavigationStack {
@@ -83,13 +89,17 @@ struct HomeView: View {
                         featuredCarousel
                     }
 
-                    if viewModel.rails.isEmpty && viewModel.isLoading {
+                    if viewModel.rails.isEmpty && viewModel.isLoading && tmdbCatalog.homeTrending.isEmpty {
                         loadingState
-                    } else if viewModel.rails.isEmpty && library.continueWatching.isEmpty {
+                    } else if viewModel.rails.isEmpty
+                                && library.continueWatching.isEmpty
+                                && tmdbCatalog.homeTrending.isEmpty {
                         ContentUnavailableCompat(
                             icon: "sparkles.tv",
                             title: "No catalogs",
-                            message: "Sign in to pull your installed addon catalogs."
+                            message: tmdbSettings.hasAPIKey
+                                ? "Harbor could not load your catalogs. Pull to retry."
+                                : "Connect TMDB or sign in to pull your installed addon catalogs."
                         )
                         .frame(minHeight: 320)
                     } else {
@@ -97,11 +107,22 @@ struct HomeView: View {
                             continueWatchingRow
                         }
 
-                        if !streamingAddons.isEmpty {
-                            streamingProvidersRow
+                        if tmdbSettings.hasAPIKey {
+                            TMDBStreamingProvidersRow()
+                        } else {
+                            TMDBKeyPrompt(compact: true)
+                                .padding(.horizontal, horizontalPadding)
                         }
 
-                        if let firstRail = viewModel.rails.first {
+                        if !tmdbCatalog.homeTrending.isEmpty {
+                            AdaptiveMediaRail(
+                                title: "Top 10 Trending This Week",
+                                subtitle: "Powered by TMDB · Updated weekly",
+                                metas: tmdbCatalog.homeTrending,
+                                source: .home,
+                                ranked: true
+                            )
+                        } else if let firstRail = viewModel.rails.first {
                             TopTenRailRow(rail: firstRail)
                         }
 
@@ -116,12 +137,18 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable {
                 await viewModel.load(forceAddonRefresh: true)
+                await tmdbCatalog.loadHome(
+                    apiKey: tmdbSettings.apiKey,
+                    region: region,
+                    force: true
+                )
                 if let authKey = AuthStore.shared.authKey {
                     await LibraryStore.shared.refresh(authKey: authKey, force: true)
                 }
             }
             .task {
                 await viewModel.loadIfNeeded()
+                await tmdbCatalog.loadHome(apiKey: tmdbSettings.apiKey, region: region)
                 if let authKey = AuthStore.shared.authKey {
                     await LibraryStore.shared.refresh(authKey: authKey)
                 }
@@ -133,6 +160,12 @@ struct HomeView: View {
                 if featuredIndex >= count {
                     featuredIndex = 0
                 }
+            }
+            .onChange(of: tmdbSettings.apiKey) { apiKey in
+                Task { await tmdbCatalog.loadHome(apiKey: apiKey, region: region, force: true) }
+            }
+            .onChange(of: region) { value in
+                Task { await tmdbCatalog.loadHome(apiKey: tmdbSettings.apiKey, region: value, force: true) }
             }
             .onAppear {
                 AnalyticsService.shared.setCurrentScreen(.home, screenClass: "HomeView")
@@ -152,10 +185,15 @@ struct HomeView: View {
                 .background(Theme.surface, in: Circle())
                 .overlay(Circle().stroke(Theme.border, lineWidth: 1))
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, horizontalPadding)
     }
 
     private var featuredNavigations: [MetaNavigation] {
+        if !tmdbCatalog.homeTrending.isEmpty {
+            return tmdbCatalog.homeTrending.prefix(horizontalSizeClass == .regular ? 5 : 4).map {
+                MetaNavigation(meta: $0, base: nil, source: .home)
+            }
+        }
         guard let rail = viewModel.rails.first else { return [] }
         return rail.metas.prefix(4).map {
             MetaNavigation(meta: $0, base: rail.base, source: .home)
@@ -171,7 +209,7 @@ struct HomeView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 450)
+            .frame(height: heroHeight)
 
             if featuredNavigations.count > 1 {
                 HStack(spacing: 6) {
@@ -202,7 +240,7 @@ struct HomeView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 450)
+            .frame(height: heroHeight)
             .clipped()
 
             LinearGradient(
@@ -235,7 +273,7 @@ struct HomeView: View {
                     .frame(maxWidth: 245, maxHeight: 82, alignment: .leading)
                 } else {
                     Text(meta.name)
-                        .font(.system(size: 34, weight: .bold, design: .serif))
+                        .font(.system(size: horizontalSizeClass == .regular ? 44 : 34, weight: .bold, design: .serif))
                         .tracking(-1)
                         .lineLimit(2)
                 }
@@ -247,7 +285,7 @@ struct HomeView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.74))
                         .lineLimit(3)
-                        .frame(maxWidth: 330, alignment: .leading)
+                        .frame(maxWidth: horizontalSizeClass == .regular ? 510 : 330, alignment: .leading)
                 }
 
                 HStack(spacing: 10) {
@@ -265,12 +303,12 @@ struct HomeView: View {
                     .buttonStyle(HarborSecondaryButtonStyle())
                 }
             }
-            .padding(18)
+            .padding(horizontalSizeClass == .regular ? 28 : 18)
         }
-        .frame(height: 450)
+        .frame(height: heroHeight)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.border, lineWidth: 1))
-        .padding(.horizontal, 12)
+        .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 12)
     }
 
     private func heroMetadata(_ meta: Meta) -> some View {
@@ -316,7 +354,7 @@ struct HomeView: View {
                 title: "Continue Watching",
                 subtitle: "Pick up exactly where you left off"
             )
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
@@ -331,54 +369,7 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
-            }
-        }
-    }
-
-    private var streamingAddons: [Addon] {
-        catalogStore.addons.filter { addon in
-            (addon.manifest.resources ?? []).contains { $0.typeName == "stream" }
-        }
-    }
-
-    private var streamingProvidersRow: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HarborSectionHeader(
-                title: "Your Streaming",
-                subtitle: "Synced from your Stremio account"
-            )
-            .padding(.horizontal, 16)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
-                    ForEach(streamingAddons) { addon in
-                        HStack(spacing: 10) {
-                            AsyncImage(url: URL(string: addon.manifest.logo ?? "")) { phase in
-                                if let image = phase.image {
-                                    image.resizable().scaledToFit()
-                                } else {
-                                    Image(systemName: "play.rectangle.fill")
-                                        .foregroundColor(Theme.accent)
-                                }
-                            }
-                            .frame(width: 34, height: 34)
-
-                            Text(addon.displayName)
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(Theme.textPrimary)
-                                .lineLimit(2)
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(width: 156, height: 68, alignment: .leading)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.cardRadius)
-                                .stroke(Theme.border, lineWidth: 1)
-                        )
-                    }
-                }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalPadding)
             }
         }
     }

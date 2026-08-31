@@ -2,9 +2,12 @@ import SwiftUI
 
 struct LibraryView: View {
     @ObservedObject private var library = LibraryStore.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var segment = 0
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 148 : 104), spacing: 14)]
+    }
 
     var body: some View {
         NavigationStack {
@@ -54,7 +57,7 @@ struct LibraryView: View {
                         cwList
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
                 .padding(.vertical, 16)
             }
             .background(Theme.background)
@@ -88,7 +91,10 @@ struct LibraryView: View {
                         base: nil,
                         source: .watchlist
                     )) {
-                        PosterCard(meta: item.asMeta(), width: 104)
+                        PosterCard(
+                            meta: item.asMeta(),
+                            width: horizontalSizeClass == .regular ? 148 : 104
+                        )
                     }
                     .buttonStyle(.plain)
                     .contextMenu {

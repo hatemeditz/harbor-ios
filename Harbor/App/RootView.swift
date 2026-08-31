@@ -20,6 +20,7 @@ private enum HarborTab: String, CaseIterable, Identifiable {
 
 struct RootView: View {
     @ObservedObject private var auth = AuthStore.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTab: HarborTab = .home
 
     var body: some View {
@@ -31,6 +32,16 @@ struct RootView: View {
     }
 
     private var tabs: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
+        }
+    }
+
+    private var compactLayout: some View {
         TabView(selection: $selectedTab) {
             HomeView()
                 .tag(HarborTab.home)
@@ -56,6 +67,72 @@ struct RootView: View {
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             customTabBar
+        }
+    }
+
+    private var regularLayout: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 22) {
+                HarborWordmark(compact: true)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+
+                VStack(spacing: 7) {
+                    ForEach(HarborTab.allCases) { tab in
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedTab == tab ? "\(tab.icon).fill" : tab.icon)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .frame(width: 24)
+                                Text(tab.rawValue)
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                            }
+                            .foregroundColor(selectedTab == tab ? .white : Theme.textSecondary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 46)
+                            .background(
+                                selectedTab == tab ? Theme.surfaceSelected : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 13)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("harbor.sidebar.\(tab.rawValue.lowercased())")
+                        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                    }
+                }
+
+                Spacer()
+
+                Text("HARBOR FOR IPAD")
+                    .font(.system(size: 9, weight: .heavy))
+                    .tracking(1.6)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
+            .padding(10)
+            .frame(width: 220)
+            .background(Theme.surface)
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(Theme.border).frame(width: 1)
+            }
+
+            selectedContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Theme.background)
+    }
+
+    @ViewBuilder
+    private var selectedContent: some View {
+        switch selectedTab {
+        case .home: HomeView()
+        case .discover: SearchView()
+        case .library: LibraryView()
+        case .settings: SettingsView()
         }
     }
 

@@ -165,10 +165,16 @@ final class SearchViewModel: ObservableObject {
 struct SearchView: View {
     @StateObject private var viewModel = SearchViewModel()
     @StateObject private var browseModel = HomeViewModel()
+    @ObservedObject private var tmdbSettings = TMDBSettingsStore.shared
+    @ObservedObject private var tmdbCatalog = TMDBCatalogStore.shared
+    @AppStorage("harbor.region") private var region = "US"
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 104), spacing: 12)
-    ]
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 148 : 104), spacing: 14)]
+    }
+
+    private var horizontalPadding: CGFloat { horizontalSizeClass == .regular ? 28 : 16 }
 
     var body: some View {
         NavigationStack {
@@ -196,7 +202,7 @@ struct SearchView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalPadding)
                 .padding(.top, 16)
                 .padding(.bottom, 10)
 
@@ -219,11 +225,33 @@ struct SearchView: View {
             .onChange(of: viewModel.scope) { _ in
                 viewModel.scopeChanged()
             }
+            .onChange(of: tmdbSettings.apiKey) { apiKey in
+                Task {
+                    if apiKey.isEmpty {
+                        await browseModel.loadIfNeeded()
+                    } else {
+                        await tmdbCatalog.loadDiscovery(apiKey: apiKey, region: region, force: true)
+                    }
+                }
+            }
+            .onChange(of: region) { value in
+                Task {
+                    await tmdbCatalog.loadDiscovery(
+                        apiKey: tmdbSettings.apiKey,
+                        region: value,
+                        force: true
+                    )
+                }
+            }
             .onAppear {
                 AnalyticsService.shared.setCurrentScreen(.search, screenClass: "SearchView")
             }
             .task {
-                await browseModel.loadIfNeeded()
+                if tmdbSettings.hasAPIKey {
+                    await tmdbCatalog.loadDiscovery(apiKey: tmdbSettings.apiKey, region: region)
+                } else {
+                    await browseModel.loadIfNeeded()
+                }
             }
         }
     }
@@ -236,13 +264,17 @@ struct SearchView: View {
                     ? nil
                     : "\(viewModel.visibleResults.count) titles"
             )
-            .padding(.horizontal, 16)
+            .padding(.horizontal, horizontalPadding)
             .padding(.top, 8)
 
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(viewModel.visibleResults.enumerated()), id: \.element.id) { index, meta in
                     NavigationLink(value: MetaNavigation(meta: meta, base: nil, source: .search)) {
-                        PosterCard(meta: meta, width: 104, showTypeBadge: true)
+                        PosterCard(
+                            meta: meta,
+                            width: horizontalSizeClass == .regular ? 148 : 104,
+                            showTypeBadge: true
+                        )
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture().onEnded {
@@ -260,7 +292,7 @@ struct SearchView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(horizontalPadding)
 
             if viewModel.isSearching {
                 ProgressView().tint(Theme.accent).padding(.bottom, 20)
@@ -289,32 +321,57 @@ struct SearchView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
-                    HarborSectionHeader(
-                        title: "Explore the catalog",
-                        subtitle: "Search across movies and television"
-                    )
-                    .padding(.horizontal, 16)
+                    if tmdbSettings.hasAPIKey {
+                        HarborSectionHeader(
+                            title: "Explore the catalog",
+                            subtitle: "Curated with TMDB for \(region)"
+                        )
+                        .padding(.horizontal, horizontalPadding)
 
-                    if let featured = browseModel.rails.first?.metas.first,
-                       let base = browseModel.rails.first?.base {
-                        discoveryFeature(meta: featured, base: base)
-                    }
+                        if let featured = tmdbCatalog.shelves.first?.metas.first {
+                            discoveryFeature(meta: featured, base: nil)
+                        }
 
-                    HStack(spacing: 13) {
-                        discoveryTile(icon: "film.fill", title: "Movies", caption: "New and timeless")
-                        discoveryTile(icon: "tv.fill", title: "Series", caption: "Stories that continue")
-                    }
-                    .padding(.horizontal, 16)
+                        TMDBGenreRow()
 
-                    ForEach(Array(browseModel.rails.prefix(2))) { rail in
-                        RailRow(rail: rail, source: .search)
-                    }
+                        ForEach(tmdbCatalog.shelves) { shelf in
+                            AdaptiveMediaRail(
+                                title: shelf.title,
+                                subtitle: shelf.subtitle,
+                                metas: shelf.metas,
+                                source: .search,
+                                ranked: shelf.id == "trending-week"
+                            )
+                        }
 
-                    if browseModel.isLoading && browseModel.rails.isEmpty {
-                        ProgressView()
-                            .tint(Theme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 50)
+                        if tmdbCatalog.isLoadingDiscovery && tmdbCatalog.shelves.isEmpty {
+                            ProgressView()
+                                .tint(Theme.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 70)
+                        } else if let error = tmdbCatalog.errorMessage,
+                                  tmdbCatalog.shelves.isEmpty {
+                            ContentUnavailableCompat(
+                                icon: "wifi.exclamationmark",
+                                title: "Couldn’t load Discover",
+                                message: error
+                            )
+                            .frame(minHeight: 260)
+                        }
+                    } else {
+                        TMDBKeyPrompt()
+                            .padding(.horizontal, horizontalPadding)
+
+                        ForEach(Array(browseModel.rails.prefix(2))) { rail in
+                            RailRow(rail: rail, source: .search)
+                        }
+
+                        if browseModel.isLoading && browseModel.rails.isEmpty {
+                            ProgressView()
+                                .tint(Theme.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 50)
+                        }
                     }
                 }
                 .padding(.vertical, 8)
@@ -322,7 +379,7 @@ struct SearchView: View {
         }
     }
 
-    private func discoveryFeature(meta: Meta, base: String) -> some View {
+    private func discoveryFeature(meta: Meta, base: String?) -> some View {
         NavigationLink(value: MetaNavigation(meta: meta, base: base, source: .search)) {
             ZStack(alignment: .bottomLeading) {
                 AsyncImage(url: URL(string: meta.background ?? meta.poster ?? "")) { phase in
@@ -333,7 +390,7 @@ struct SearchView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 220)
+                .frame(height: horizontalSizeClass == .regular ? 320 : 220)
                 .clipped()
 
                 LinearGradient(
@@ -357,30 +414,12 @@ struct SearchView: View {
                 }
                 .padding(16)
             }
-            .frame(height: 220)
+            .frame(height: horizontalSizeClass == .regular ? 320 : 220)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: 1))
-            .padding(.horizontal, 16)
+            .padding(.horizontal, horizontalPadding)
         }
         .buttonStyle(.plain)
     }
 
-    private func discoveryTile(icon: String, title: String, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(Theme.accent)
-                .frame(width: 42, height: 42)
-                .background(Theme.accentSoft.opacity(0.8), in: Circle())
-            Text(title)
-                .font(.system(size: 17, weight: .bold, design: .serif))
-            Text(caption)
-                .font(.caption)
-                .foregroundColor(Theme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Theme.border, lineWidth: 1))
-    }
 }

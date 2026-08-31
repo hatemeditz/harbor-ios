@@ -48,6 +48,26 @@ struct MetaVideo: Codable, Identifiable, Hashable {
         case overview
     }
 
+    init(
+        id: String,
+        name: String? = nil,
+        title: String? = nil,
+        season: Int? = nil,
+        episode: Int? = nil,
+        released: Date? = nil,
+        thumbnail: String? = nil,
+        overview: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.title = title
+        self.season = season
+        self.episode = episode
+        self.released = released
+        self.thumbnail = thumbnail
+        self.overview = overview
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)

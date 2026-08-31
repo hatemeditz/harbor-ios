@@ -80,12 +80,29 @@ jobs:
             test \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
+      - name: Run iPad design smoke test
+        run: |
+          set -o pipefail
+          IPAD_UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((d["udid"] for runtime in sorted(data["devices"], reverse=True) for d in data["devices"][runtime] if "iPad" in d["name"]), ""))')
+          if [ -z "${IPAD_UDID}" ]; then
+            echo "No available iPad simulator was found"
+            exit 1
+          fi
+          xcodebuild -workspace Harbor.xcworkspace \
+            -scheme Harbor \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${IPAD_UDID}" \
+            -resultBundlePath build/HarborIPadTests.xcresult \
+            -only-testing:HarborUITests/LaunchSmokeTests/testSignedInDesignNavigationShowsPrimaryScreens \
+            test \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
       - name: Upload test results and design screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Harbor-test-results
-          path: build/HarborTests.xcresult
+          path: build/*.xcresult
           if-no-files-found: warn
           retention-days: 14
 

@@ -81,16 +81,25 @@ struct DetailView: View {
         guard fullMeta == nil, !isLoadingDetail else { return }
         isLoadingDetail = true
         defer { isLoadingDetail = false }
-        fullMeta = try? await AddonClient.shared.metaDetail(
-            base: nav.base,
-            type: nav.meta.type,
-            id: nav.meta.id
-        )
+        if nav.meta.id.hasPrefix("tmdb:"), TMDBSettingsStore.shared.hasAPIKey {
+            fullMeta = try? await TMDBClient.shared.detailMeta(
+                apiKey: TMDBSettingsStore.shared.apiKey,
+                meta: nav.meta
+            )
+        } else {
+            fullMeta = try? await AddonClient.shared.metaDetail(
+                base: nav.base,
+                type: nav.meta.type,
+                id: nav.meta.id
+            )
+        }
         refreshBookmarkFlag()
     }
 
     private func refreshBookmarkFlag() {
-        isBookmarked = library.item(id: nav.meta.id)?.isBookmarked ?? false
+        isBookmarked = library.item(id: displayMeta.id)?.isBookmarked
+            ?? library.item(id: nav.meta.id)?.isBookmarked
+            ?? false
     }
 
     private func toggleBookmark() {
@@ -309,18 +318,31 @@ struct DetailView: View {
                 }
             }
 
-            LazyVStack(spacing: 10) {
-                ForEach(videos.filter { ($0.season ?? 1) == activeSeason }) { video in
-                    EpisodeRow(
-                        video: video,
-                        meta: episodeTargetMeta,
-                        watched: isEpisodeWatched(video),
-                        base: nav.base,
-                        source: nav.source
-                    )
+            if isLoadingDetail && videos.isEmpty {
+                ProgressView()
+                    .tint(Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+            } else if videos.isEmpty {
+                Text("Episode information is not available for this series.")
+                    .font(.subheadline)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 24)
+            } else {
+                LazyVStack(spacing: 10) {
+                    ForEach(videos.filter { ($0.season ?? 1) == activeSeason }) { video in
+                        EpisodeRow(
+                            video: video,
+                            meta: episodeTargetMeta,
+                            watched: isEpisodeWatched(video),
+                            base: nav.base,
+                            source: nav.source
+                        )
+                    }
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
         .padding(.top, 18)
     }

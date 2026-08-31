@@ -110,22 +110,23 @@ struct ContentUnavailableCompat: View {
 struct RailRow: View {
     let rail: Rail
     var source: HarborNavigationSource = .home
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HarborSectionHeader(title: rail.title, subtitle: rail.type.capitalized)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(Array(rail.metas.prefix(24))) { meta in
                         NavigationLink(value: MetaNavigation(meta: meta, base: rail.base, source: source)) {
-                            PosterCard(meta: meta)
+                            PosterCard(meta: meta, width: horizontalSizeClass == .regular ? 148 : 122)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
             }
         }
     }
@@ -134,11 +135,12 @@ struct RailRow: View {
 struct TopTenRailRow: View {
     let rail: Rail
     var source: HarborNavigationSource = .home
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HarborSectionHeader(title: "Top 10", subtitle: rail.title)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .bottom, spacing: 4) {
@@ -146,21 +148,29 @@ struct TopTenRailRow: View {
                         NavigationLink(value: MetaNavigation(meta: meta, base: rail.base, source: source)) {
                             ZStack(alignment: .bottomLeading) {
                                 Text("\(index + 1)")
-                                    .font(.system(size: 116, weight: .black, design: .rounded))
+                                    .font(.system(size: horizontalSizeClass == .regular ? 144 : 116, weight: .black, design: .rounded))
                                     .foregroundColor(Theme.background)
                                     .shadow(color: .white.opacity(0.38), radius: 1.2)
-                                    .frame(width: 82, alignment: .leading)
+                                    .frame(width: horizontalSizeClass == .regular ? 104 : 82, alignment: .leading)
                                     .offset(x: 2, y: 4)
 
-                                PosterCard(meta: meta, width: 108, showTitle: false)
-                                    .offset(x: 44)
+                                PosterCard(
+                                    meta: meta,
+                                    width: horizontalSizeClass == .regular ? 136 : 108,
+                                    showTitle: false
+                                )
+                                    .offset(x: horizontalSizeClass == .regular ? 56 : 44)
                             }
-                            .frame(width: 154, height: 168, alignment: .bottomLeading)
+                            .frame(
+                                width: horizontalSizeClass == .regular ? 192 : 154,
+                                height: horizontalSizeClass == .regular ? 204 : 168,
+                                alignment: .bottomLeading
+                            )
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 16)
             }
         }
     }

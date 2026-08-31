@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var auth = AuthStore.shared
+    @ObservedObject private var tmdbSettings = TMDBSettingsStore.shared
     @AppStorage("harbor.region") private var region = "US"
     @AppStorage(AnalyticsService.collectionPreferenceKey) private var analyticsEnabled = true
     @State private var confirmSignOut = false
@@ -82,18 +83,30 @@ struct SettingsView: View {
                         }
                     }
                     .listRowBackground(Theme.surface)
+                }
 
-                    Section("Preferences") {
-                        Picker(selection: $region) {
-                            ForEach(regions, id: \.self) { code in
-                                Text(code).tag(code)
-                            }
-                        } label: {
-                            Label("Region", systemImage: "globe")
+                Section("Discovery") {
+                    NavigationLink {
+                        TMDBSetupView()
+                    } label: {
+                        HStack {
+                            Label("TMDB", systemImage: "key.fill")
+                            Spacer()
+                            Text(tmdbSettings.hasAPIKey ? "Connected" : "Not connected")
+                                .font(.caption)
+                                .foregroundColor(Theme.textSecondary)
                         }
                     }
-                    .listRowBackground(Theme.surface)
+
+                    Picker(selection: $region) {
+                        ForEach(regions, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
+                    } label: {
+                        Label("Catalog Region", systemImage: "globe")
+                    }
                 }
+                .listRowBackground(Theme.surface)
 
                 Section {
                     Toggle("Share anonymous analytics", isOn: $analyticsEnabled)
