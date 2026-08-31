@@ -9,36 +9,63 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                Picker("Section", selection: $segment) {
-                    Text("Watchlist").tag(0)
-                    Text("Continue Watching").tag(1)
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    HarborPageHeader(
+                        title: "My Library",
+                        eyebrow: "Your Harbor",
+                        subtitle: "Saved stories and unfinished voyages"
+                    )
+                    .accessibilityIdentifier("harbor.library.header")
+
+                    HStack(spacing: 8) {
+                        HarborFilterPill(title: "Watchlist", selected: segment == 0) {
+                            withAnimation(.easeInOut(duration: 0.2)) { segment = 0 }
+                        }
+                        HarborFilterPill(title: "Continue Watching", selected: segment == 1) {
+                            withAnimation(.easeInOut(duration: 0.2)) { segment = 1 }
+                        }
+                        Spacer()
+                    }
+
+                    if let error = library.errorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundColor(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    HarborSectionHeader(
+                        title: segment == 0 ? "Saved for Later" : "Continue Watching",
+                        subtitle: segment == 0
+                            ? "\(library.watchlist.count) titles"
+                            : "\(library.continueWatching.count) in progress"
+                    )
+
+                    switch segment {
+                    case 0:
+                        grid(
+                            library.watchlist,
+                            emptyIcon: "bookmark.slash",
+                            emptyText: "Your watchlist is empty"
+                        )
+                    default:
+                        cwList
+                    }
                 }
-                .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
-
-                if let error = library.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundColor(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                }
-
-                switch segment {
-                case 0: grid(library.watchlist, emptyIcon: "bookmark.slash", emptyText: "Your watchlist is empty")
-                default: cwList
-                }
+                .padding(.vertical, 16)
             }
             .background(Theme.background)
-            .navigationTitle("Library")
+            .toolbar(.hidden, for: .navigationBar)
             .refreshable { await sync(force: true) }
             .task { await sync() }
             .navigationDestination(for: MetaNavigation.self) { nav in
                 DetailView(nav: nav)
+            }
+            .onAppear {
+                AnalyticsService.shared.setCurrentScreen(.library, screenClass: "LibraryView")
             }
         }
     }
@@ -56,7 +83,11 @@ struct LibraryView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(items) { item in
-                    NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
+                    NavigationLink(value: MetaNavigation(
+                        meta: item.asMeta(),
+                        base: nil,
+                        source: .watchlist
+                    )) {
                         PosterCard(meta: item.asMeta(), width: 104)
                     }
                     .buttonStyle(.plain)
@@ -69,7 +100,6 @@ struct LibraryView: View {
                     }
                 }
             }
-            .padding(16)
         }
     }
 
@@ -85,8 +115,12 @@ struct LibraryView: View {
             } else {
                 LazyVStack(spacing: 14) {
                     ForEach(library.continueWatching) { item in
-                        NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
-                            ContinueWatchingCard(item: item)
+                        NavigationLink(value: MetaNavigation(
+                            meta: item.asMeta(),
+                            base: nil,
+                            source: .continueWatching
+                        )) {
+                            libraryContinueCard(item)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -98,9 +132,65 @@ struct LibraryView: View {
                         }
                     }
                 }
-                .padding(16)
             }
         }
+    }
+
+    private func libraryContinueCard(_ item: LibraryItem) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            AsyncImage(url: URL(string: (item.background ?? item.poster) ?? "")) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    LinearGradient(
+                        colors: [Theme.surfaceRaised, Theme.accentSoft],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 178)
+            .clipped()
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.9)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.name)
+                    .font(.system(size: 18, weight: .bold, design: .serif))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(continueWatchingSubtitle(item))
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.22))
+                        Capsule().fill(Theme.accent)
+                            .frame(width: geometry.size.width * item.progressRatio)
+                    }
+                }
+                .frame(height: 3)
+                .padding(.top, 4)
+            }
+            .padding(14)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 178)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Theme.border, lineWidth: 1))
+    }
+
+    private func continueWatchingSubtitle(_ item: LibraryItem) -> String {
+        if let episode = item.episodeFromVideoId {
+            return "Season \(episode.season) · Episode \(episode.episode)"
+        }
+        return item.type == "series" ? "Continue series" : "Continue movie"
     }
 
     private func removeBookmark(_ item: LibraryItem) {

@@ -10,6 +10,18 @@ struct Rail: Identifiable {
     let extras: [String: String]?
 }
 
+struct CatalogSearchResponse {
+    enum Status: String {
+        case success
+        case partial
+        case failure
+    }
+
+    let results: [Meta]
+    let status: Status
+    let errorCategory: HarborAnalyticsErrorCategory?
+}
+
 @MainActor
 final class CatalogStore: ObservableObject {
     static let shared = CatalogStore()
@@ -222,20 +234,47 @@ final class CatalogStore: ObservableObject {
 
     // MARK: - Search
 
-    func search(query: String, skip: Int = 0) async -> [Meta] {
+    func search(query: String, skip: Int = 0) async -> CatalogSearchResponse {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 2 else { return [] }
-        async let movies = AddonClient.shared.catalogPage(
-            base: AddonClient.cinemetaBase, type: "movie", id: "top",
-            extras: ["search": trimmed, "skip": String(skip)]
+        guard trimmed.count >= 2 else {
+            return CatalogSearchResponse(results: [], status: .success, errorCategory: nil)
+        }
+        async let movies = searchPage(type: "movie", query: trimmed, skip: skip)
+        async let series = searchPage(type: "series", query: trimmed, skip: skip)
+        let (moviePage, seriesPage) = await (movies, series)
+        let results = Self.interleavedSearchResults(
+            movies: moviePage.results,
+            series: seriesPage.results
         )
-        async let series = AddonClient.shared.catalogPage(
-            base: AddonClient.cinemetaBase, type: "series", id: "top",
-            extras: ["search": trimmed, "skip": String(skip)]
+        let failures = [moviePage.errorCategory, seriesPage.errorCategory].compactMap { $0 }
+        let status: CatalogSearchResponse.Status
+        switch failures.count {
+        case 0: status = .success
+        case 1: status = .partial
+        default: status = .failure
+        }
+        return CatalogSearchResponse(
+            results: results,
+            status: status,
+            errorCategory: failures.first
         )
-        let m = (try? await movies) ?? []
-        let s = (try? await series) ?? []
-        return Self.interleavedSearchResults(movies: m, series: s)
+    }
+
+    private func searchPage(type: String, query: String, skip: Int) async -> (
+        results: [Meta],
+        errorCategory: HarborAnalyticsErrorCategory?
+    ) {
+        do {
+            let results = try await AddonClient.shared.catalogPage(
+                base: AddonClient.cinemetaBase,
+                type: type,
+                id: "top",
+                extras: ["search": query, "skip": String(skip)]
+            )
+            return (results, nil)
+        } catch {
+            return ([], HarborAnalyticsErrorCategory.classify(error))
+        }
     }
 
     nonisolated static func interleavedSearchResults(movies: [Meta], series: [Meta]) -> [Meta] {

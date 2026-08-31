@@ -13,6 +13,19 @@ final class AuthStore: ObservableObject {
     var isSignedIn: Bool { authKey != nil }
 
     private init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-HarborUITestSignedIn") {
+            authKey = "harbor-ui-test-session"
+            user = StremioUser(
+                id: "harbor-ui-test-user",
+                email: "viewer@example.invalid",
+                fullname: "Harbor Viewer",
+                avatar: nil
+            )
+            return
+        }
+        #endif
+
         authKey = Keychain.string(for: Self.authKeyAccount)
         user = Self.loadCachedUser()
         if authKey != nil {

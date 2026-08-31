@@ -1,10 +1,18 @@
 import SwiftUI
 
+private struct PlaybackSelection: Identifiable {
+    let id = UUID()
+    let url: URL
+    let requestedAt: Date
+    let target: StreamTarget
+}
+
 struct StreamsSheet: View {
     let target: StreamTarget
 
     @StateObject private var engine = StreamEngine()
-    @State private var playingStream: ScoredStream?
+    @State private var playbackSelection: PlaybackSelection?
+    @State private var playbackAttemptCount = 0
     @State private var selectedAddonId: String?
 
     private let tierColors: [String: Color] = [
@@ -16,34 +24,36 @@ struct StreamsSheet: View {
     ]
 
     var body: some View {
-        Group {
-            if engine.isLoading && engine.streams.isEmpty {
-                loadingState
-            } else if displayedStreams.isEmpty {
-                emptyState
-            } else {
-                streamList
+        VStack(spacing: 0) {
+            streamHeader
+
+            Group {
+                if engine.isLoading && engine.streams.isEmpty {
+                    loadingState
+                } else if displayedStreams.isEmpty {
+                    emptyState
+                } else {
+                    streamList
+                }
             }
         }
         .background(Theme.background)
-        .navigationTitle("Streams")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                addonFilter
-            }
-        }
+        .harborNavigationChrome()
         .task(id: target) {
             await engine.load(target: target)
         }
-        .fullScreenCover(item: $playingStream) { stream in
-            Group {
-                if let urlString = stream.raw.url, let url = URL(string: urlString) {
-                    PlayerScreen(streamURL: url, title: target.title, target: target)
-                } else {
-                    Color.black.ignoresSafeArea()
-                }
-            }
+        .onAppear {
+            AnalyticsService.shared.setCurrentScreen(.streams, screenClass: "StreamsSheet")
+        }
+        .fullScreenCover(item: $playbackSelection) { selection in
+            PlayerScreen(
+                streamURL: selection.url,
+                title: selection.target.title,
+                target: selection.target,
+                playbackRequestedAt: selection.requestedAt
+            )
         }
     }
 
@@ -91,8 +101,61 @@ struct StreamsSheet: View {
         } label: {
             Label(selectedAddonName, systemImage: "line.3.horizontal.decrease.circle")
                 .labelStyle(.titleAndIcon)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(Theme.textPrimary)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(Theme.surface.opacity(0.9), in: Capsule())
+                .overlay(Capsule().stroke(Theme.border, lineWidth: 1))
         }
         .disabled(engine.availableAddons.count < 2)
+    }
+
+    private var streamHeader: some View {
+        ZStack(alignment: .bottomLeading) {
+            AsyncImage(url: URL(string: target.background ?? target.poster ?? "")) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    LinearGradient(
+                        colors: [Theme.surfaceRaised, Theme.background],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 180)
+            .clipped()
+
+            LinearGradient(
+                colors: [.black.opacity(0.2), Theme.background],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("CHOOSE A SOURCE")
+                    .font(.system(size: 9, weight: .heavy))
+                    .tracking(2.1)
+                    .foregroundColor(Theme.accent)
+                Text(target.title)
+                    .font(.system(size: 26, weight: .bold, design: .serif))
+                    .tracking(-0.6)
+                    .lineLimit(2)
+                HStack {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    addonFilter
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+        }
+        .frame(height: 180)
     }
 
     private var loadingState: some View {
@@ -114,7 +177,7 @@ struct StreamsSheet: View {
                 .font(.system(size: 40))
                 .foregroundColor(Theme.textSecondary)
             Text(filteredEmptyTitle)
-                .font(.title3.bold())
+                .font(.system(size: 22, weight: .bold, design: .serif))
             Text(filteredEmptyMessage)
                 .font(.subheadline)
                 .foregroundColor(Theme.textSecondary)
@@ -153,13 +216,13 @@ struct StreamsSheet: View {
     }
 
     private var streamList: some View {
-            ScrollView {
+        ScrollView {
             LazyVStack(spacing: 10) {
                 ForEach(displayedStreams) { scored in
                     StreamRow(scored: scored, tierColor: tierColors[scored.tierLabel] ?? Color(white: 0.3))
                         .onTapGesture {
                             guard scored.playable else { return }
-                            playingStream = scored
+                            select(scored)
                         }
                 }
 
@@ -175,6 +238,104 @@ struct StreamsSheet: View {
             }
             .padding(14)
         }
+    }
+
+    private func select(_ stream: ScoredStream) {
+        guard let rawURL = stream.raw.url, let url = URL(string: rawURL) else { return }
+        let requestedAt = Date()
+        let attemptTarget = playbackTargetForNextAttempt()
+        var parameters = AnalyticsService.shared.mediaParameters(
+            mediaType: attemptTarget.type,
+            mediaId: attemptTarget.metaId,
+            source: attemptTarget.analyticsSource,
+            playbackSessionId: attemptTarget.playbackSessionId,
+            seasonNumber: attemptTarget.seasonNumber,
+            episodeNumber: attemptTarget.episodeNumber
+        )
+        if let index = engine.streams.firstIndex(where: { $0.id == stream.id }) {
+            parameters[.streamPosition] = .int(index + 1)
+        }
+        parameters[.quality] = .string(qualityToken(stream.parsed.resolution))
+        parameters[.resolution] = .string(resolutionToken(stream.parsed.resolution))
+        if let codec = stream.parsed.codec {
+            parameters[.codec] = .string(codec.lowercased())
+        }
+        if let container = containerToken(url: url) {
+            parameters[.container] = .string(container)
+        }
+        if let streamType = streamTypeToken(for: stream, url: url) {
+            parameters[.streamType] = .string(streamType)
+        }
+        parameters[.providerType] = .string(providerType(for: stream).rawValue)
+        AnalyticsService.shared.log(.streamSelected, parameters: parameters)
+        AnalyticsService.shared.log(.playbackStartRequested, parameters: parameters)
+        playbackSelection = PlaybackSelection(
+            url: url,
+            requestedAt: requestedAt,
+            target: attemptTarget
+        )
+    }
+
+    private func playbackTargetForNextAttempt() -> StreamTarget {
+        let sessionId = playbackAttemptCount == 0 ? target.playbackSessionId : UUID()
+        playbackAttemptCount += 1
+        return StreamTarget(
+            metaId: target.metaId,
+            type: target.type,
+            title: target.title,
+            videoId: target.videoId,
+            base: target.base,
+            metaName: target.metaName,
+            poster: target.poster,
+            background: target.background,
+            analyticsSource: target.analyticsSource,
+            playbackSessionId: sessionId,
+            analyticsSeasonNumber: target.seasonNumber,
+            analyticsEpisodeNumber: target.episodeNumber
+        )
+    }
+
+    private func providerType(for stream: ScoredStream) -> HarborAddonType {
+        guard let id = stream.raw.addonId,
+              let addon = engine.availableAddons.first(where: { $0.id == id })
+        else { return .unknown }
+        return addon.flags?.official == true ? .official : .thirdParty
+    }
+
+    private func qualityToken(_ resolution: ResolutionRank) -> String {
+        switch resolution {
+        case .uhd2160: return "uhd"
+        case .fhd1080: return "fhd"
+        case .hd720: return "hd"
+        case .sd: return "sd"
+        case .unknown: return "unknown"
+        }
+    }
+
+    private func resolutionToken(_ resolution: ResolutionRank) -> String {
+        switch resolution {
+        case .uhd2160: return "2160p"
+        case .fhd1080: return "1080p"
+        case .hd720: return "720p"
+        case .sd: return "sd"
+        case .unknown: return "unknown"
+        }
+    }
+
+    private func containerToken(url: URL) -> String? {
+        let supported = Set(["mkv", "mp4", "webm", "avi", "mov", "m3u8", "ts"])
+        let value = url.pathExtension.lowercased()
+        return supported.contains(value) ? value : nil
+    }
+
+    private func streamTypeToken(for stream: ScoredStream, url: URL) -> String? {
+        if let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            return scheme
+        }
+        if let infoHash = stream.raw.infoHash, !infoHash.isEmpty {
+            return "torrent"
+        }
+        return nil
     }
 }
 
@@ -231,7 +392,11 @@ struct StreamRow: View {
                 .padding(.top, 2)
         }
         .padding(12)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cardRadius)
+                .stroke(scored.playable ? Theme.border : Theme.border.opacity(0.45), lineWidth: 1)
+        )
         .opacity(scored.playable ? 1 : 0.65)
     }
 }

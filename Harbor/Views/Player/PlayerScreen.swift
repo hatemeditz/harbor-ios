@@ -11,6 +11,7 @@ struct PlayerScreen: View {
 
     @State private var activeTitle: String
     @State private var activeTarget: StreamTarget
+    @State private var analyticsSession: PlaybackAnalyticsSession
     @State private var showControls = true
     @State private var controlsHideTask: Task<Void, Never>?
     @State private var syncCounter = 0
@@ -23,10 +24,19 @@ struct PlayerScreen: View {
 
     private let uiTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(streamURL: URL, title: String, target: StreamTarget) {
+    init(
+        streamURL: URL,
+        title: String,
+        target: StreamTarget,
+        playbackRequestedAt: Date = Date()
+    ) {
         self.streamURL = streamURL
         _activeTitle = State(initialValue: title)
         _activeTarget = State(initialValue: target)
+        _analyticsSession = State(initialValue: PlaybackAnalyticsSession(
+            target: target,
+            requestedAt: playbackRequestedAt
+        ))
     }
 
     var body: some View {
@@ -35,7 +45,8 @@ struct PlayerScreen: View {
 
             PlayerHostView(controller: player)
                 .ignoresSafeArea()
-                .onTapGesture { toggleControls() }
+
+            playbackTapSurface
 
             if player.isBuffering {
                 ProgressView()
@@ -61,6 +72,11 @@ struct PlayerScreen: View {
         .onDisappear {
             controlsHideTask?.cancel()
             persistProgress(force: true)
+            analyticsSession.stop(
+                reason: playbackStopReason,
+                currentTime: player.currentTime,
+                duration: player.duration
+            )
             player.stop()
         }
         .onChange(of: scenePhase) { phase in
@@ -90,8 +106,11 @@ struct PlayerScreen: View {
         guard !resumeApplied else { return }
         resumeApplied = true
 
-        let offset = resumeOffset()
-        player.load(url: streamURL, startAt: offset)
+        AnalyticsService.shared.setCurrentScreen(.player, screenClass: "PlayerScreen")
+        let resume = resumeContext()
+        analyticsSession.prepareForResume(offset: resume.offset, knownDuration: resume.duration)
+        analyticsSession.begin()
+        player.load(url: streamURL, startAt: resume.offset)
 
         scheduleControlsHide()
         loadNextEpisodeCandidate()
@@ -101,17 +120,17 @@ struct PlayerScreen: View {
         }
     }
 
-    private func resumeOffset() -> TimeInterval {
+    private func resumeContext() -> (offset: TimeInterval, duration: TimeInterval) {
         guard let item = LibraryStore.shared.item(id: activeTarget.metaId),
-              let state = item.state else { return 0 }
+              let state = item.state else { return (0, 0) }
         let sameVideo: Bool
         if let videoId = activeTarget.videoId {
             sameVideo = state.videoId == videoId
         } else {
             sameVideo = state.videoId == nil || state.videoId?.hasPrefix(activeTarget.metaId + ":") != true
         }
-        guard sameVideo, let offset = state.timeOffset, offset > 30_000 else { return 0 }
-        return offset / 1000
+        guard sameVideo, let offset = state.timeOffset, offset > 30_000 else { return (0, 0) }
+        return (offset / 1000, (state.duration ?? 0) / 1000)
     }
 
     private func loadNextEpisodeCandidate() {
@@ -136,6 +155,11 @@ struct PlayerScreen: View {
 
     private func tick() {
         player.poll()
+        analyticsSession.update(
+            state: player.state,
+            currentTime: player.currentTime,
+            duration: player.duration
+        )
         syncCounter += 1
         let ratio = player.duration > 0 ? player.currentTime / player.duration : 0
 
@@ -163,6 +187,11 @@ struct PlayerScreen: View {
     }
 
     private func handlePlaybackState(_ state: VLCPlayerController.PlayState) {
+        analyticsSession.update(
+            state: state,
+            currentTime: player.currentTime,
+            duration: player.duration
+        )
         switch state {
         case .playing:
             if showControls { scheduleControlsHide() }
@@ -173,6 +202,14 @@ struct PlayerScreen: View {
             }
         case .idle, .buffering, .stopped:
             break
+        }
+    }
+
+    private var playbackStopReason: HarborPlaybackStopReason {
+        switch player.state {
+        case .ended: return .ended
+        case .errored: return .failed
+        default: return .dismissed
         }
     }
 
@@ -198,11 +235,27 @@ struct PlayerScreen: View {
 
     // MARK: - Controls
 
+    /// VLC renders inside a native UIView, which can consume touches before a
+    /// gesture attached to PlayerHostView reaches SwiftUI. Keep a permanent,
+    /// nearly transparent SwiftUI hit area above the video instead.
+    private var playbackTapSurface: some View {
+        Color.black.opacity(0.001)
+            .contentShape(Rectangle())
+            .ignoresSafeArea()
+            .onTapGesture {
+                toggleControls()
+            }
+            .accessibilityLabel("Toggle playback controls")
+            .accessibilityIdentifier("harbor.player.control_surface")
+    }
+
     private func toggleControls() {
+        controlsHideTask?.cancel()
+        let willShow = !showControls
         withAnimation(.easeInOut(duration: 0.2)) {
-            showControls.toggle()
+            showControls = willShow
         }
-        if showControls {
+        if willShow {
             scheduleControlsHide()
         }
     }
@@ -230,21 +283,80 @@ struct PlayerScreen: View {
             base: activeTarget.base,
             metaName: activeTarget.metaName,
             poster: activeTarget.poster,
-            background: activeTarget.background
+            background: activeTarget.background,
+            analyticsSource: activeTarget.analyticsSource,
+            playbackSessionId: UUID(),
+            analyticsSeasonNumber: next.season,
+            analyticsEpisodeNumber: next.episode
         )
+
+        let nextParameters = AnalyticsService.shared.mediaParameters(
+            mediaType: nextTarget.type,
+            mediaId: nextTarget.metaId,
+            source: nextTarget.analyticsSource,
+            playbackSessionId: nextTarget.playbackSessionId,
+            seasonNumber: nextTarget.seasonNumber,
+            episodeNumber: nextTarget.episodeNumber
+        )
+        AnalyticsService.shared.log(.playClicked, parameters: nextParameters)
 
         Task {
             let streams = StreamEngine()
             await streams.load(target: nextTarget)
-            guard let best = streams.streams.first(where: \.playable) ?? streams.streams.first,
-                  let urlString = best.raw.url, let url = URL(string: urlString) else { return }
+            guard let best = streams.streams.first(where: \.playable) else {
+                await recoverNextEpisodeSelection(
+                    category: .noStreams,
+                    parameters: nextParameters
+                )
+                return
+            }
+            guard let urlString = best.raw.url, let url = URL(string: urlString) else {
+                await recoverNextEpisodeSelection(
+                    category: .invalidURL,
+                    parameters: nextParameters
+                )
+                return
+            }
+            let requestedAt = Date()
+            var selectionParameters = nextParameters
+            selectionParameters[.streamPosition] = .int(
+                (streams.streams.firstIndex(where: { $0.id == best.id }) ?? 0) + 1
+            )
+            selectionParameters[.quality] = .string(Self.qualityToken(best.parsed.resolution))
+            selectionParameters[.resolution] = .string(Self.resolutionToken(best.parsed.resolution))
+            if let codec = best.parsed.codec {
+                selectionParameters[.codec] = .string(codec.lowercased())
+            }
+            if let streamType = Self.streamTypeToken(for: best, url: url) {
+                selectionParameters[.streamType] = .string(streamType)
+            }
+            let providerType: HarborAddonType
+            if let addonId = best.raw.addonId,
+               let addon = streams.availableAddons.first(where: { $0.id == addonId }) {
+                providerType = addon.flags?.official == true ? .official : .thirdParty
+            } else {
+                providerType = .unknown
+            }
+            selectionParameters[.providerType] = .string(providerType.rawValue)
+            AnalyticsService.shared.log(.streamSelected, parameters: selectionParameters)
+            AnalyticsService.shared.log(.playbackStartRequested, parameters: selectionParameters)
             await MainActor.run {
+                analyticsSession.stop(
+                    reason: player.state == .ended ? .ended : .replaced,
+                    currentTime: player.currentTime,
+                    duration: player.duration
+                )
                 markedWatched = false
                 syncCounter = 0
                 resumeApplied = true
                 nextVideo = nil
                 activeTitle = next.displayTitle
                 activeTarget = nextTarget
+                analyticsSession = PlaybackAnalyticsSession(
+                    target: nextTarget,
+                    requestedAt: requestedAt
+                )
+                analyticsSession.begin()
                 player.load(url: url, startAt: 0)
                 showControls = true
                 scheduleControlsHide()
@@ -254,6 +366,50 @@ struct PlayerScreen: View {
                 }
             }
         }
+    }
+
+    private func recoverNextEpisodeSelection(
+        category: HarborAnalyticsErrorCategory,
+        parameters: HarborAnalyticsParameters
+    ) async {
+        var failureParameters = parameters
+        failureParameters[.errorType] = .string(category.rawValue)
+        AnalyticsService.shared.log(.playbackStartRequested, parameters: parameters)
+        AnalyticsService.shared.log(.playbackFailed, parameters: failureParameters)
+        await MainActor.run {
+            showNextPrompt = nextVideo != nil
+            showControls = true
+        }
+    }
+
+    private static func qualityToken(_ resolution: ResolutionRank) -> String {
+        switch resolution {
+        case .uhd2160: return "uhd"
+        case .fhd1080: return "fhd"
+        case .hd720: return "hd"
+        case .sd: return "sd"
+        case .unknown: return "unknown"
+        }
+    }
+
+    private static func resolutionToken(_ resolution: ResolutionRank) -> String {
+        switch resolution {
+        case .uhd2160: return "2160p"
+        case .fhd1080: return "1080p"
+        case .hd720: return "720p"
+        case .sd: return "sd"
+        case .unknown: return "unknown"
+        }
+    }
+
+    private static func streamTypeToken(for stream: ScoredStream, url: URL) -> String? {
+        if let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            return scheme
+        }
+        if let infoHash = stream.raw.infoHash, !infoHash.isEmpty {
+            return "torrent"
+        }
+        return nil
     }
 
     // MARK: - Overlay views
@@ -280,6 +436,8 @@ struct PlayerScreen: View {
                     .frame(width: 40, height: 40)
                     .background(.black.opacity(0.45), in: Circle())
             }
+            .accessibilityLabel("Close player and stop playback")
+            .accessibilityIdentifier("harbor.player.close")
             VStack(alignment: .leading, spacing: 2) {
                 Text(activeTitle)
                     .font(.subheadline.weight(.semibold))
@@ -389,7 +547,7 @@ struct PlayerScreen: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 36))
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.accent)
             Text("Playback failed")
                 .font(.headline)
                 .foregroundColor(.white)
@@ -398,10 +556,11 @@ struct PlayerScreen: View {
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
             Button("Close") { dismiss() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(HarborPrimaryButtonStyle())
         }
         .padding(24)
-        .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 16))
+        .background(Theme.surface.opacity(0.96), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: 1))
     }
 
     private var nextEpisodePrompt: some View {
@@ -416,15 +575,14 @@ struct PlayerScreen: View {
             }
             HStack(spacing: 12) {
                 Button("Dismiss") { showNextPrompt = false }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
+                    .buttonStyle(HarborSecondaryButtonStyle())
                 Button("Play now") { playNext() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
+                    .buttonStyle(HarborPrimaryButtonStyle())
             }
         }
         .padding(20)
-        .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 16))
+        .background(Theme.surface.opacity(0.96), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: 1))
     }
 
     private func timeString(_ interval: TimeInterval) -> String {
@@ -466,13 +624,26 @@ struct PlayerOptionsSheet: View {
         NavigationStack {
             Form {
                 playbackSection
+                    .listRowBackground(Theme.surface)
                 audioSection
+                    .listRowBackground(Theme.surface)
                 subtitleSection
+                    .listRowBackground(Theme.surface)
                 subtitleTimingSection
+                    .listRowBackground(Theme.surface)
             }
-            .navigationTitle("Playback options")
+            .scrollContentBackground(.hidden)
+            .background(Theme.background)
+            .tint(Theme.accent)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .harborNavigationChrome()
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Playback Options")
+                        .font(.system(size: 17, weight: .bold, design: .serif))
+                        .foregroundColor(Theme.textPrimary)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }

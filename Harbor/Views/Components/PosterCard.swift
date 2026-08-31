@@ -9,7 +9,7 @@ struct PosterCard: View {
     private var posterHeight: CGFloat { width * 1.5 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             ZStack(alignment: .bottomLeading) {
                 AsyncImage(url: URL(string: meta.poster ?? "")) { phase in
                     if let image = phase.image {
@@ -25,38 +25,46 @@ struct PosterCard: View {
                     }
                 }
                 .frame(width: width, height: posterHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(alignment: .topTrailing) {
+                .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cardRadius)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+                .overlay(alignment: .topLeading) {
                     if showTypeBadge {
-                        Text(meta.type == "series" ? "SERIES" : "MOVIE")
+                        Text(meta.type == "series" ? "SHOW" : "MOVIE")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 3)
-                            .background(.black.opacity(0.7), in: Capsule())
+                            .background(.black.opacity(0.82), in: Capsule())
                             .padding(5)
                     }
                 }
 
                 if let rating = meta.imdbRating, !rating.isEmpty {
                     HStack(spacing: 3) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.yellow)
+                        Text("IMDb")
+                            .font(.system(size: 7, weight: .black))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 2)
+                            .background(Color.yellow, in: RoundedRectangle(cornerRadius: 2))
                         Text(rating)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 5)
                     .padding(.vertical, 3)
-                    .background(.black.opacity(0.65), in: Capsule())
-                    .padding(6)
+                    .background(.black.opacity(0.8), in: Capsule())
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(5)
                 }
             }
 
             if showTitle {
                 Text(meta.name)
-                    .font(.caption.weight(.medium))
+                    .font(.caption.weight(.semibold))
                     .foregroundColor(Theme.textPrimary)
                     .lineLimit(1)
                 if let year = meta.releaseInfo, !year.isEmpty {
@@ -71,7 +79,7 @@ struct PosterCard: View {
     }
 
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 10)
+        RoundedRectangle(cornerRadius: Theme.cardRadius)
             .fill(Theme.surfaceRaised)
             .frame(width: width, height: posterHeight)
     }
@@ -101,19 +109,53 @@ struct ContentUnavailableCompat: View {
 
 struct RailRow: View {
     let rail: Rail
+    var source: HarborNavigationSource = .home
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(rail.title)
-                .font(.headline)
-                .foregroundColor(Theme.textPrimary)
+        VStack(alignment: .leading, spacing: 11) {
+            HarborSectionHeader(title: rail.title, subtitle: rail.type.capitalized)
                 .padding(.horizontal, 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
+                LazyHStack(spacing: 12) {
                     ForEach(Array(rail.metas.prefix(24))) { meta in
-                        NavigationLink(value: MetaNavigation(meta: meta, base: rail.base)) {
+                        NavigationLink(value: MetaNavigation(meta: meta, base: rail.base, source: source)) {
                             PosterCard(meta: meta)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+}
+
+struct TopTenRailRow: View {
+    let rail: Rail
+    var source: HarborNavigationSource = .home
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HarborSectionHeader(title: "Top 10", subtitle: rail.title)
+                .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .bottom, spacing: 4) {
+                    ForEach(Array(rail.metas.prefix(10).enumerated()), id: \.element.id) { index, meta in
+                        NavigationLink(value: MetaNavigation(meta: meta, base: rail.base, source: source)) {
+                            ZStack(alignment: .bottomLeading) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 116, weight: .black, design: .rounded))
+                                    .foregroundColor(Theme.background)
+                                    .shadow(color: .white.opacity(0.38), radius: 1.2)
+                                    .frame(width: 82, alignment: .leading)
+                                    .offset(x: 2, y: 4)
+
+                                PosterCard(meta: meta, width: 108, showTitle: false)
+                                    .offset(x: 44)
+                            }
+                            .frame(width: 154, height: 168, alignment: .bottomLeading)
                         }
                         .buttonStyle(.plain)
                     }

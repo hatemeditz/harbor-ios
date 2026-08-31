@@ -20,6 +20,12 @@ struct ContinueWatchingCard: View {
                 .frame(width: width, height: height)
                 .clipped()
 
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.8)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)
                         .font(.caption.weight(.semibold))
@@ -47,7 +53,11 @@ struct ContinueWatchingCard: View {
                 .padding(.bottom, 4)
             }
             .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius)
+                    .stroke(Theme.border, lineWidth: 1)
+            )
 
             Text(resumeLabel)
                 .font(.system(size: 10))

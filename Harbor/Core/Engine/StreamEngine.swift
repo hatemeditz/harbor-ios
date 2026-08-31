@@ -2,6 +2,12 @@ import Foundation
 
 @MainActor
 final class StreamEngine: ObservableObject {
+    private struct FetchOutcome {
+        let addonId: String
+        let streams: [RawStream]?
+        let errorCategory: HarborAnalyticsErrorCategory?
+    }
+
     struct AddonProgress: Identifiable {
         let id: String
         let name: String
@@ -22,6 +28,7 @@ final class StreamEngine: ObservableObject {
 
     private var nextId = 0
     private var loadToken = UUID()
+    private var activeTrace: HarborPerformanceTrace?
 
     /// All addons that declare a `stream` resource usable for this target.
     func streamAddons(for target: StreamTarget) async -> [Addon] {
@@ -53,17 +60,39 @@ final class StreamEngine: ObservableObject {
     }
 
     func load(target: StreamTarget) async {
+        activeTrace?.stop(outcome: "cancelled", metrics: [.success: 0])
         loadToken = UUID()
         let token = loadToken
+        let operationToken = AnalyticsService.shared.beginOperation(.streams)
+        defer { AnalyticsService.shared.endOperation(operationToken) }
+        let startedAt = Date()
+        let trace = AnalyticsService.shared.startTrace(
+            .streamFetch,
+            attributes: [.mediaType: HarborMediaType(target.type).rawValue]
+        )
+        activeTrace = trace
         isLoading = true
         streams = []
         progress = []
         errorMessage = nil
         nextId = 0
 
+        let baseParameters = AnalyticsService.shared.mediaParameters(
+            mediaType: target.type,
+            mediaId: target.metaId,
+            source: target.analyticsSource,
+            playbackSessionId: target.playbackSessionId,
+            seasonNumber: target.seasonNumber,
+            episodeNumber: target.episodeNumber
+        )
+        AnalyticsService.shared.log(.streamFetchStarted, parameters: baseParameters)
+
         let stremioId = target.videoId ?? target.metaId
         let addons = await streamAddons(for: target)
-        guard token == loadToken else { return }
+        guard token == loadToken else {
+            trace.stop(outcome: "cancelled", metrics: [.success: 0])
+            return
+        }
         availableAddons = addons
 
         if let syncError = CatalogStore.shared.errorMessage {
@@ -76,10 +105,23 @@ final class StreamEngine: ObservableObject {
 
         guard !addons.isEmpty else {
             isLoading = false
+            var parameters = baseParameters
+            parameters[.addonCount] = .int(0)
+            parameters[.streamCount] = .int(0)
+            parameters[.fetchDurationMs] = .int(AnalyticsService.milliseconds(since: startedAt))
+            parameters[.errorType] = .string(HarborAnalyticsErrorCategory.noAddons.rawValue)
+            AnalyticsService.shared.log(.streamFetchFailed, parameters: parameters)
+            trace.stop(
+                outcome: "failure",
+                attributes: [.errorCategory: HarborAnalyticsErrorCategory.noAddons.rawValue],
+                metrics: [.success: 0, .addonCount: 0, .streamCount: 0]
+            )
+            if activeTrace === trace { activeTrace = nil }
             return
         }
 
-        await withTaskGroup(of: (String, [RawStream]?, Bool).self) { group in
+        var didLogSuccess = false
+        await withTaskGroup(of: FetchOutcome.self) { group in
             for addon in addons {
                 group.addTask {
                     do {
@@ -90,23 +132,32 @@ final class StreamEngine: ObservableObject {
                                 id: stremioId
                             )
                         )
-                        return (addon.id, response.streams, true)
+                        return FetchOutcome(
+                            addonId: addon.id,
+                            streams: response.streams,
+                            errorCategory: nil
+                        )
                     } catch {
-                        return (addon.id, nil, false)
+                        return FetchOutcome(
+                            addonId: addon.id,
+                            streams: nil,
+                            errorCategory: HarborAnalyticsErrorCategory.classify(error)
+                        )
                     }
                 }
             }
 
-            for await (addonId, rawStreams, ok) in group {
+            for await outcome in group {
                 guard token == loadToken else { return }
-                if let index = progress.firstIndex(where: { $0.id == addonId }) {
-                    progress[index].state = ok ? .done(rawStreams?.count ?? 0) : .failed
+                let ok = outcome.errorCategory == nil
+                if let index = progress.firstIndex(where: { $0.id == outcome.addonId }) {
+                    progress[index].state = ok ? .done(outcome.streams?.count ?? 0) : .failed
                 }
 
                 var batch: [ScoredStream] = []
-                for var raw in (rawStreams ?? []) {
-                    raw.addonId = addonId
-                    raw.addonName = progress.first { $0.id == addonId }?.name
+                for var raw in (outcome.streams ?? []) {
+                    raw.addonId = outcome.addonId
+                    raw.addonName = progress.first { $0.id == outcome.addonId }?.name
                     nextId += 1
                     if let scored = StreamScorer.score(raw: raw, id: nextId) {
                         batch.append(scored)
@@ -126,10 +177,78 @@ final class StreamEngine: ObservableObject {
                 errorMessage = "Your Stremio stream addons synced, but none of them could be reached."
             }
             isLoading = false
+
+            if !streams.isEmpty {
+                didLogSuccess = true
+                var parameters = baseParameters
+                parameters[.streamCount] = .int(streams.count)
+                parameters[.addonCount] = .int(addons.count)
+                parameters[.addonSuccessCount] = .int(successCount)
+                parameters[.addonFailureCount] = .int(failureCount)
+                parameters[.fetchDurationMs] = .int(AnalyticsService.milliseconds(since: startedAt))
+                AnalyticsService.shared.log(.streamFetchSuccess, parameters: parameters)
+            } else {
+                let category: HarborAnalyticsErrorCategory = failureCount == addons.count
+                    ? .allAddonsFailed
+                    : .noStreams
+                var parameters = baseParameters
+                parameters[.streamCount] = .int(0)
+                parameters[.addonCount] = .int(addons.count)
+                parameters[.addonSuccessCount] = .int(successCount)
+                parameters[.addonFailureCount] = .int(failureCount)
+                parameters[.fetchDurationMs] = .int(AnalyticsService.milliseconds(since: startedAt))
+                parameters[.errorType] = .string(category.rawValue)
+                AnalyticsService.shared.log(.streamFetchFailed, parameters: parameters)
+                if category == .allAddonsFailed {
+                    AnalyticsService.shared.recordNonFatal(
+                        .streamFetch,
+                        category: category,
+                        context: HarborErrorContext(
+                            screen: .streams,
+                            operation: .streams,
+                            mediaType: HarborMediaType(target.type)
+                        )
+                    )
+                }
+            }
+            trace.stop(
+                outcome: didLogSuccess ? "success" : "failure",
+                attributes: didLogSuccess ? [:] : [
+                    .errorCategory: (failureCount == addons.count
+                        ? HarborAnalyticsErrorCategory.allAddonsFailed
+                        : HarborAnalyticsErrorCategory.noStreams).rawValue,
+                ],
+                metrics: [
+                    .success: didLogSuccess ? 1 : 0,
+                    .streamCount: Int64(streams.count),
+                    .addonCount: Int64(addons.count),
+                    .failureCount: Int64(failureCount),
+                ]
+            )
+            if activeTrace === trace { activeTrace = nil }
+        } else {
+            trace.stop(outcome: "cancelled", metrics: [.success: 0])
         }
     }
 
     func cancel() {
         loadToken = UUID()
+        activeTrace?.stop(outcome: "cancelled", metrics: [.success: 0])
+        activeTrace = nil
+        isLoading = false
+    }
+
+    private var successCount: Int {
+        progress.filter {
+            if case .done = $0.state { return true }
+            return false
+        }.count
+    }
+
+    private var failureCount: Int {
+        progress.filter {
+            if case .failed = $0.state { return true }
+            return false
+        }.count
     }
 }

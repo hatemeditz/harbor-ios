@@ -14,6 +14,11 @@ settings:
     DEVELOPMENT_TEAM: ""
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 12.17.0
+
 targets:
   Harbor:
     type: application
@@ -36,11 +41,38 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         ITSAppUsesNonExemptEncryption: false
+        FirebaseAppDelegateProxyEnabled: false
+        FirebaseAutomaticScreenReportingEnabled: false
+        FIREBASE_ANALYTICS_COLLECTION_ENABLED: false
+        GOOGLE_ANALYTICS_REGISTRATION_WITH_AD_NETWORK_ENABLED: false
+        GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS: false
+        FirebaseCrashlyticsCollectionEnabled: false
+        firebase_performance_collection_enabled: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: site.harbor.ios
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
+        DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - package: Firebase
+        product: FirebaseAnalyticsCore
+      - package: Firebase
+        product: FirebaseCrashlytics
+      - package: Firebase
+        product: FirebasePerformance
+    postBuildScripts:
+      - name: Upload Crashlytics Symbols
+        basedOnDependencyAnalysis: false
+        script: |
+          CONFIG="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist"
+          RUN="${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run"
+          if [ -f "${CONFIG}" ] && [ -x "${RUN}" ]; then
+            "${RUN}" || echo "warning: Crashlytics dSYM upload failed; the archive will continue"
+          else
+            echo "warning: Crashlytics dSYM upload skipped because Firebase configuration is unavailable"
+          fi
 
   HarborTests:
     type: bundle.unit-test

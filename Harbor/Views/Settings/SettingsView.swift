@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var auth = AuthStore.shared
     @AppStorage("harbor.region") private var region = "US"
+    @AppStorage(AnalyticsService.collectionPreferenceKey) private var analyticsEnabled = true
     @State private var confirmSignOut = false
 
     private let regions = ["US", "UK", "CA", "AU", "DE", "FR", "ES", "IT", "NL", "BR", "MX", "IN", "JP", "KR", "SE", "PL"]
@@ -10,6 +11,16 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                HarborPageHeader(
+                    title: "Settings",
+                    eyebrow: "Make Harbor Yours",
+                    subtitle: "Account, playback services and privacy"
+                )
+                .accessibilityIdentifier("harbor.settings.header")
+                .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
                 Section("Account") {
                     if let user = auth.user {
                         HStack(spacing: 12) {
@@ -55,6 +66,7 @@ struct SettingsView: View {
                         .padding(.vertical, 4)
                     }
                 }
+                .listRowBackground(Theme.surface)
 
                 if auth.isSignedIn {
                     Section("Library") {
@@ -69,6 +81,7 @@ struct SettingsView: View {
                             Label("Streaming & Debrid", systemImage: "wand.and.stars")
                         }
                     }
+                    .listRowBackground(Theme.surface)
 
                     Section("Preferences") {
                         Picker(selection: $region) {
@@ -79,17 +92,29 @@ struct SettingsView: View {
                             Label("Region", systemImage: "globe")
                         }
                     }
+                    .listRowBackground(Theme.surface)
                 }
 
+                Section {
+                    Toggle("Share anonymous analytics", isOn: $analyticsEnabled)
+                } header: {
+                    Text("Privacy")
+                } footer: {
+                    Text("Shares privacy-safe usage, crash, and performance diagnostics. Harbor never sends credentials, private URLs, stream links, or raw searches.")
+                }
+                .listRowBackground(Theme.surface)
+
                 Section("About") {
-                    LabeledRow(label: "Version", value: "0.9.3")
-                    LabeledRow(label: "Build", value: "4")
+                    LabeledRow(label: "Version", value: appVersion)
+                    LabeledRow(label: "Build", value: appBuild)
                     LabeledRow(label: "Player", value: "VLC")
                 }
+                .listRowBackground(Theme.surface)
             }
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.background)
-            .navigationTitle("Settings")
+            .toolbar(.hidden, for: .navigationBar)
             .confirmationDialog(
                 "Sign out of Stremio?",
                 isPresented: $confirmSignOut,
@@ -101,7 +126,21 @@ struct SettingsView: View {
             } message: {
                 Text("Your library stays synced to your Stremio account.")
             }
+            .onAppear {
+                AnalyticsService.shared.setCurrentScreen(.settings, screenClass: "SettingsView")
+            }
+            .onChange(of: analyticsEnabled) { enabled in
+                AnalyticsService.shared.setCollectionEnabledByUser(enabled)
+            }
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
     }
 }
 

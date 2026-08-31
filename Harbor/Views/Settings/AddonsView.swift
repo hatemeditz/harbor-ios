@@ -6,15 +6,26 @@ struct AddonsView: View {
 
     var body: some View {
         List {
+            HarborPageHeader(
+                title: "Addons",
+                eyebrow: "Extend Harbor",
+                subtitle: "Everything installed in your Stremio collection"
+            )
+            .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
             if let status = manager.statusMessage {
                 Label(status, systemImage: "checkmark.circle.fill")
                     .foregroundColor(.green)
                     .font(.subheadline)
+                    .listRowBackground(Theme.surface)
             }
             if let error = manager.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .font(.subheadline)
+                    .listRowBackground(Theme.surface)
             }
 
             Section("Installed (\(manager.cloudAddons.count))") {
@@ -30,6 +41,7 @@ struct AddonsView: View {
                     }
                 }
             }
+            .listRowBackground(Theme.surface)
 
             Section("Add by URL") {
                 TextField("https://example.com/manifest.json", text: $newAddonURL)
@@ -46,19 +58,27 @@ struct AddonsView: View {
                 }
                 .disabled(newAddonURL.isEmpty || manager.isLoading)
             }
+            .listRowBackground(Theme.surface)
 
             Section {
                 Text("Addons installed or configured in Stremio on your PC sync here automatically. Add a URL only when the addon is not already in your Stremio account.")
                     .font(.caption)
                     .foregroundColor(Theme.textSecondary)
             }
+            .listRowBackground(Theme.surface)
         }
+        .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .navigationTitle("Addons")
+        .tint(Theme.accent)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .harborNavigationChrome()
         .task { await reload() }
         .refreshable { await reload() }
+        .onAppear {
+            AnalyticsService.shared.setCurrentScreen(.addons, screenClass: "AddonsView")
+        }
     }
 
     private func reload() async {
@@ -134,15 +154,26 @@ struct DebridSetupView: View {
 
     var body: some View {
         List {
+            HarborPageHeader(
+                title: "Streaming & Debrid",
+                eyebrow: "Playback Services",
+                subtitle: "Manage synced providers and optional Torrentio setup"
+            )
+            .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
             if let status = manager.statusMessage {
                 Label(status, systemImage: "checkmark.circle.fill")
                     .foregroundColor(.green)
                     .font(.subheadline)
+                    .listRowBackground(Theme.surface)
             }
             if let error = manager.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .font(.subheadline)
+                    .listRowBackground(Theme.surface)
             }
 
             syncedStreamingAddons
@@ -165,6 +196,7 @@ struct DebridSetupView: View {
             } footer: {
                 Text("Keys stay in this device's Keychain. Installing or updating Torrentio adds its configured transport URL to your Stremio account.")
             }
+            .listRowBackground(Theme.surface)
 
             Section {
                 Button {
@@ -186,11 +218,17 @@ struct DebridSetupView: View {
                 .foregroundColor(.white)
             }
         }
+        .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .navigationTitle("Streaming & Debrid")
+        .tint(Theme.accent)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadKeys() }
+        .harborNavigationChrome()
+        .onAppear {
+            loadKeys()
+            AnalyticsService.shared.setCurrentScreen(.debridSetup, screenClass: "DebridSetupView")
+        }
         .task {
             if let authKey = AuthStore.shared.authKey {
                 await manager.reload(authKey: authKey)
@@ -234,6 +272,7 @@ struct DebridSetupView: View {
                 Text("Harbor uses these addons and their configured transport URLs automatically. You do not need to reinstall them or enter the debrid key again.")
             }
         }
+        .listRowBackground(Theme.surface)
     }
 
     private var syncedSubtitleAddons: some View {
@@ -252,6 +291,7 @@ struct DebridSetupView: View {
                 }
             }
         }
+        .listRowBackground(Theme.surface)
     }
 
     private func loadKeys() {

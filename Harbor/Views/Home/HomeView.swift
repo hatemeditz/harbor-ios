@@ -3,7 +3,6 @@ import SwiftUI
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published var rails: [Rail] = []
-    @Published var hero: Meta?
     @Published var isLoading = false
 
     private var loadedOnce = false
@@ -26,10 +25,7 @@ final class HomeViewModel: ObservableObject {
             force: forceAddonRefresh
         )
         let built = CatalogStore.shared.buildRails(from: addons, maxRails: 10)
-        guard !built.isEmpty else {
-            if rails.isEmpty { hero = nil }
-            return
-        }
+        guard !built.isEmpty else { return }
 
         var pages = Array(repeating: [Meta](), count: built.count)
         var publishedInitialRail = false
@@ -54,7 +50,6 @@ final class HomeViewModel: ObservableObject {
                     var firstRail = built[index]
                     firstRail.metas = pages[index]
                     rails = [firstRail]
-                    hero = pages[index].first
                     publishedInitialRail = true
                 }
             }
@@ -69,47 +64,56 @@ final class HomeViewModel: ObservableObject {
         // Keep the last good catalog snapshot if a refresh temporarily fails.
         guard !loaded.isEmpty else { return }
         rails = loaded
-        hero = loaded.lazy.compactMap { $0.metas.first }.first
     }
 }
 
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var catalogStore = CatalogStore.shared
+    @State private var featuredIndex = 0
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                if viewModel.rails.isEmpty && viewModel.isLoading {
-                    VStack(spacing: 12) {
-                        ProgressView().tint(Theme.accent)
-                        Text("Loading catalogs")
-                            .foregroundColor(Theme.textSecondary)
-                            .font(.subheadline)
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    homeHeader
+
+                    if !featuredNavigations.isEmpty {
+                        featuredCarousel
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 180)
-                } else if viewModel.rails.isEmpty && library.continueWatching.isEmpty {
-                    ContentUnavailableCompat(
-                        icon: "sparkles.tv",
-                        title: "No catalogs",
-                        message: "Sign in to pull your installed addon catalogs."
-                    )
-                    .padding(.top, 120)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 26) {
+
+                    if viewModel.rails.isEmpty && viewModel.isLoading {
+                        loadingState
+                    } else if viewModel.rails.isEmpty && library.continueWatching.isEmpty {
+                        ContentUnavailableCompat(
+                            icon: "sparkles.tv",
+                            title: "No catalogs",
+                            message: "Sign in to pull your installed addon catalogs."
+                        )
+                        .frame(minHeight: 320)
+                    } else {
                         if !library.continueWatching.isEmpty {
                             continueWatchingRow
                         }
-                        ForEach(viewModel.rails) { rail in
+
+                        if !streamingAddons.isEmpty {
+                            streamingProvidersRow
+                        }
+
+                        if let firstRail = viewModel.rails.first {
+                            TopTenRailRow(rail: firstRail)
+                        }
+
+                        ForEach(Array(viewModel.rails.dropFirst())) { rail in
                             RailRow(rail: rail)
                         }
                     }
-                    .padding(.vertical, 16)
                 }
+                .padding(.vertical, 14)
             }
             .background(Theme.background)
-            .navigationTitle("Home")
+            .toolbar(.hidden, for: .navigationBar)
             .refreshable {
                 await viewModel.load(forceAddonRefresh: true)
                 if let authKey = AuthStore.shared.authKey {
@@ -125,23 +129,253 @@ struct HomeView: View {
             .navigationDestination(for: MetaNavigation.self) { nav in
                 DetailView(nav: nav)
             }
+            .onChange(of: featuredNavigations.count) { count in
+                if featuredIndex >= count {
+                    featuredIndex = 0
+                }
+            }
+            .onAppear {
+                AnalyticsService.shared.setCurrentScreen(.home, screenClass: "HomeView")
+            }
         }
     }
 
+    private var homeHeader: some View {
+        HStack {
+            HarborWordmark()
+                .accessibilityIdentifier("harbor.home.wordmark")
+            Spacer()
+            Image(systemName: "sparkles")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Theme.accent)
+                .frame(width: 38, height: 38)
+                .background(Theme.surface, in: Circle())
+                .overlay(Circle().stroke(Theme.border, lineWidth: 1))
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var featuredNavigations: [MetaNavigation] {
+        guard let rail = viewModel.rails.first else { return [] }
+        return rail.metas.prefix(4).map {
+            MetaNavigation(meta: $0, base: rail.base, source: .home)
+        }
+    }
+
+    private var featuredCarousel: some View {
+        VStack(spacing: 9) {
+            TabView(selection: $featuredIndex) {
+                ForEach(Array(featuredNavigations.enumerated()), id: \.element.meta.id) { index, navigation in
+                    featuredHero(navigation)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 450)
+
+            if featuredNavigations.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(featuredNavigations.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(index == featuredIndex ? Color.white : Color.white.opacity(0.3))
+                            .frame(width: index == featuredIndex ? 24 : 7, height: 4)
+                            .animation(.easeInOut(duration: 0.2), value: featuredIndex)
+                    }
+                }
+                .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func featuredHero(_ navigation: MetaNavigation) -> some View {
+        let meta = navigation.meta
+        return ZStack(alignment: .bottomLeading) {
+            AsyncImage(url: URL(string: meta.background ?? meta.poster ?? "")) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    LinearGradient(
+                        colors: [Theme.surfaceRaised, Theme.surface, Theme.background],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 450)
+            .clipped()
+
+            LinearGradient(
+                colors: [.black.opacity(0.04), .black.opacity(0.2), Theme.background.opacity(0.98)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            LinearGradient(
+                colors: [Theme.background.opacity(0.7), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+
+            VStack(alignment: .leading, spacing: 11) {
+                Text("FEATURED \(meta.type == "series" ? "SERIES" : "MOVIE")")
+                    .font(.system(size: 9, weight: .heavy))
+                    .tracking(2.2)
+                    .foregroundColor(Theme.accent)
+
+                if let logo = meta.logo, !logo.isEmpty {
+                    AsyncImage(url: URL(string: logo)) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFit()
+                        } else {
+                            Text(meta.name)
+                                .font(.system(size: 34, weight: .bold, design: .serif))
+                        }
+                    }
+                    .frame(maxWidth: 245, maxHeight: 82, alignment: .leading)
+                } else {
+                    Text(meta.name)
+                        .font(.system(size: 34, weight: .bold, design: .serif))
+                        .tracking(-1)
+                        .lineLimit(2)
+                }
+
+                heroMetadata(meta)
+
+                if let description = meta.description, !description.isEmpty {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.74))
+                        .lineLimit(3)
+                        .frame(maxWidth: 330, alignment: .leading)
+                }
+
+                HStack(spacing: 10) {
+                    NavigationLink(value: navigation) {
+                        Label("Play", systemImage: "play.fill")
+                    }
+                    .buttonStyle(HarborPrimaryButtonStyle())
+
+                    Button { toggleHeroBookmark(meta) } label: {
+                        Label(
+                            isBookmarked(meta) ? "Saved" : "Watchlist",
+                            systemImage: isBookmarked(meta) ? "checkmark" : "plus"
+                        )
+                    }
+                    .buttonStyle(HarborSecondaryButtonStyle())
+                }
+            }
+            .padding(18)
+        }
+        .frame(height: 450)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.border, lineWidth: 1))
+        .padding(.horizontal, 12)
+    }
+
+    private func heroMetadata(_ meta: Meta) -> some View {
+        HStack(spacing: 7) {
+            if let rating = meta.imdbRating, !rating.isEmpty {
+                Text("IMDb \(rating)")
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.yellow, in: RoundedRectangle(cornerRadius: 3))
+            }
+            if let year = meta.releaseInfo, !year.isEmpty { Text(year) }
+            if let runtime = meta.runtime, !runtime.isEmpty { Text(runtime) }
+            Text(meta.type == "series" ? "Series" : "Movie")
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundColor(.white.opacity(0.8))
+    }
+
+    private func isBookmarked(_ meta: Meta) -> Bool {
+        library.item(id: meta.id)?.isBookmarked ?? false
+    }
+
+    private func toggleHeroBookmark(_ meta: Meta) {
+        guard let authKey = AuthStore.shared.authKey else { return }
+        Task { await library.toggleBookmark(authKey: authKey, meta: meta) }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 12) {
+            ProgressView().tint(Theme.accent)
+            Text("Curating Harbor")
+                .foregroundColor(Theme.textSecondary)
+                .font(.subheadline)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 320)
+    }
+
     private var continueWatchingRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Continue Watching")
-                .font(.headline)
-                .foregroundColor(Theme.textPrimary)
+        VStack(alignment: .leading, spacing: 11) {
+            HarborSectionHeader(
+                title: "Continue Watching",
+                subtitle: "Pick up exactly where you left off"
+            )
                 .padding(.horizontal, 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     ForEach(library.continueWatching.prefix(20)) { item in
-                        NavigationLink(value: MetaNavigation(meta: item.asMeta(), base: nil)) {
+                        NavigationLink(value: MetaNavigation(
+                            meta: item.asMeta(),
+                            base: nil,
+                            source: .continueWatching
+                        )) {
                             ContinueWatchingCard(item: item)
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private var streamingAddons: [Addon] {
+        catalogStore.addons.filter { addon in
+            (addon.manifest.resources ?? []).contains { $0.typeName == "stream" }
+        }
+    }
+
+    private var streamingProvidersRow: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HarborSectionHeader(
+                title: "Your Streaming",
+                subtitle: "Synced from your Stremio account"
+            )
+            .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(streamingAddons) { addon in
+                        HStack(spacing: 10) {
+                            AsyncImage(url: URL(string: addon.manifest.logo ?? "")) { phase in
+                                if let image = phase.image {
+                                    image.resizable().scaledToFit()
+                                } else {
+                                    Image(systemName: "play.rectangle.fill")
+                                        .foregroundColor(Theme.accent)
+                                }
+                            }
+                            .frame(width: 34, height: 34)
+
+                            Text(addon.displayName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(Theme.textPrimary)
+                                .lineLimit(2)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(width: 156, height: 68, alignment: .leading)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.cardRadius)
+                                .stroke(Theme.border, lineWidth: 1)
+                        )
                     }
                 }
                 .padding(.horizontal, 16)

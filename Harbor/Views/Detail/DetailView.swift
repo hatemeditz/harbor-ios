@@ -7,6 +7,8 @@ struct DetailView: View {
     @State private var isLoadingDetail = false
     @State private var isBookmarked = false
     @State private var selectedSeason: Int?
+    @State private var didLogOpen = false
+    @State private var moviePlaybackSessionId = UUID()
 
     @ObservedObject private var library = LibraryStore.shared
 
@@ -36,7 +38,6 @@ struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero
-                titleBlock
                 actionRow
                 aboutSection
                 if displayMeta.type == "series" {
@@ -47,6 +48,9 @@ struct DetailView: View {
         }
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationDestination(for: StreamTarget.self) { target in
             StreamsSheet(target: target)
         }
@@ -54,7 +58,21 @@ struct DetailView: View {
         .onReceive(library.$items) { _ in
             refreshBookmarkFlag()
         }
-        .onAppear { refreshBookmarkFlag() }
+        .onAppear {
+            refreshBookmarkFlag()
+            AnalyticsService.shared.setCurrentScreen(.detail, screenClass: "DetailView")
+            if !didLogOpen {
+                didLogOpen = true
+                AnalyticsService.shared.log(
+                    displayMeta.type == "series" ? .seriesOpened : .movieOpened,
+                    parameters: AnalyticsService.shared.mediaParameters(
+                        mediaType: displayMeta.type,
+                        mediaId: displayMeta.id,
+                        source: nav.source
+                    )
+                )
+            }
+        }
     }
 
     // MARK: - Data
@@ -98,36 +116,39 @@ struct DetailView: View {
                     )
                 }
             }
-            .frame(height: 240)
+            .frame(height: 490)
             .clipped()
 
             LinearGradient(
-                colors: [.clear, Theme.background.opacity(0.95)],
-                startPoint: .center, endPoint: .bottom
-            )
-        }
-    }
-
-    private var titleBlock: some View {
-        HStack(alignment: .top, spacing: 14) {
-            PosterCard(
-                meta: Meta(
-                    id: displayMeta.id,
-                    type: displayMeta.type,
-                    name: displayMeta.name,
-                    poster: displayMeta.poster ?? nav.meta.poster,
-                    background: nil, logo: nil, description: nil,
-                    releaseInfo: nil, imdbRating: nil, genres: nil,
-                    runtime: nil, country: nil, network: nil, videos: nil
-                ),
-                width: 96,
-                showTitle: false
+                colors: [.black.opacity(0.08), .black.opacity(0.16), Theme.background],
+                startPoint: .top,
+                endPoint: .bottom
             )
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(displayMeta.name)
-                    .font(.title2.bold())
-                    .lineLimit(3)
+            LinearGradient(
+                colors: [Theme.background.opacity(0.7), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(displayMeta.type == "series" ? "HARBOR SERIES" : "HARBOR MOVIE")
+                    .font(.system(size: 9, weight: .heavy))
+                    .tracking(2.2)
+                    .foregroundColor(Theme.accent)
+
+                if let logo = displayMeta.logo, !logo.isEmpty {
+                    AsyncImage(url: URL(string: logo)) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFit()
+                        } else {
+                            detailTitle
+                        }
+                    }
+                    .frame(maxWidth: 260, maxHeight: 92, alignment: .leading)
+                } else {
+                    detailTitle
+                }
 
                 HStack(spacing: 8) {
                     if let year = displayMeta.releaseInfo, !year.isEmpty {
@@ -138,11 +159,13 @@ struct DetailView: View {
                     }
                     if let rating = displayMeta.imdbRating, !rating.isEmpty {
                         HStack(spacing: 3) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.yellow)
-                            Text(rating)
-                                .font(.caption.weight(.semibold))
+                            Text("IMDb")
+                                .font(.system(size: 8, weight: .black))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 2)
+                                .background(Color.yellow, in: RoundedRectangle(cornerRadius: 2))
+                            Text(rating).font(.caption.weight(.semibold))
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -155,27 +178,32 @@ struct DetailView: View {
                         .font(.caption)
                         .foregroundColor(Theme.textSecondary)
                 }
+
+                if let description = displayMeta.description, !description.isEmpty {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.72))
+                        .lineLimit(3)
+                        .frame(maxWidth: 340, alignment: .leading)
+                }
             }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 20)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, -56)
+        .frame(height: 490)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private var detailTitle: some View {
+        Text(displayMeta.name)
+            .font(.system(size: 36, weight: .bold, design: .serif))
+            .tracking(-1)
+            .foregroundColor(Theme.textPrimary)
+            .lineLimit(3)
     }
 
     private var actionRow: some View {
         HStack(spacing: 10) {
-            Button(action: toggleBookmark) {
-                Label(
-                    isBookmarked ? "In Watchlist" : "Watchlist",
-                    systemImage: isBookmarked ? "checkmark.circle.fill" : "plus.circle"
-                )
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundColor(isBookmarked ? Theme.accent : Theme.textPrimary)
-            }
-            .buttonStyle(.plain)
-
             if displayMeta.type == "movie" {
                 NavigationLink(value: StreamTarget(
                     metaId: displayMeta.id,
@@ -185,20 +213,44 @@ struct DetailView: View {
                     base: nav.base,
                     metaName: displayMeta.name,
                     poster: displayMeta.poster ?? nav.meta.poster,
-                    background: displayMeta.background ?? nav.meta.background
+                    background: displayMeta.background ?? nav.meta.background,
+                    analyticsSource: nav.source,
+                    playbackSessionId: moviePlaybackSessionId
                 )) {
                     Label("Play", systemImage: "play.fill")
-                        .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 12))
-                        .foregroundColor(.white)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(HarborPrimaryButtonStyle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    AnalyticsService.shared.log(
+                        .playClicked,
+                        parameters: AnalyticsService.shared.mediaParameters(
+                            mediaType: displayMeta.type,
+                            mediaId: displayMeta.id,
+                            source: nav.source,
+                            playbackSessionId: moviePlaybackSessionId
+                        )
+                    )
+                    let usedSessionId = moviePlaybackSessionId
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if moviePlaybackSessionId == usedSessionId {
+                            moviePlaybackSessionId = UUID()
+                        }
+                    }
+                })
             }
+
+            Button(action: toggleBookmark) {
+                Label(
+                    isBookmarked ? "Saved" : "Watchlist",
+                    systemImage: isBookmarked ? "checkmark" : "plus"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(HarborSecondaryButtonStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
+        .padding(.top, 6)
     }
 
     @ViewBuilder
@@ -206,8 +258,7 @@ struct DetailView: View {
         if let description = fullMeta?.description ?? nav.meta.description,
            !description.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("About")
-                    .font(.headline)
+                HarborSectionHeader(title: "About", subtitle: "Story and details")
                 Text(description)
                     .font(.callout)
                     .foregroundColor(Theme.textSecondary)
@@ -234,28 +285,24 @@ struct DetailView: View {
 
     private var episodesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Episodes")
-                .font(.headline)
+            HarborSectionHeader(
+                title: "Episodes",
+                subtitle: "Season \(activeSeason)"
+            )
                 .padding(.horizontal, 16)
 
             if seasons.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
                         ForEach(seasons, id: \.self) { season in
-                            Button {
-                                selectedSeason = season
-                            } label: {
-                                Text("S\(season)")
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 7)
-                                    .background(
-                                        season == activeSeason ? Theme.accent : Theme.surfaceRaised,
-                                        in: Capsule()
-                                    )
-                                    .foregroundColor(season == activeSeason ? .white : Theme.textPrimary)
+                            HarborFilterPill(
+                                title: "Season \(season)",
+                                selected: season == activeSeason
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedSeason = season
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -268,7 +315,8 @@ struct DetailView: View {
                         video: video,
                         meta: episodeTargetMeta,
                         watched: isEpisodeWatched(video),
-                        base: nav.base
+                        base: nav.base,
+                        source: nav.source
                     )
                 }
             }
@@ -307,6 +355,8 @@ struct EpisodeRow: View {
     let meta: Meta
     let watched: Bool
     let base: String?
+    let source: HarborNavigationSource
+    @State private var playbackSessionId = UUID()
 
     var body: some View {
         NavigationLink(
@@ -318,7 +368,11 @@ struct EpisodeRow: View {
                 base: base,
                 metaName: meta.name,
                 poster: meta.poster,
-                background: meta.background
+                background: meta.background,
+                analyticsSource: source,
+                playbackSessionId: playbackSessionId,
+                analyticsSeasonNumber: video.season,
+                analyticsEpisodeNumber: video.episode
             )
         ) {
             HStack(alignment: .top, spacing: 12) {
@@ -361,8 +415,29 @@ struct EpisodeRow: View {
                 Spacer(minLength: 0)
             }
             .padding(10)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius)
+                    .stroke(Theme.border, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            let parameters = AnalyticsService.shared.mediaParameters(
+                mediaType: "series",
+                mediaId: meta.id,
+                source: source,
+                playbackSessionId: playbackSessionId,
+                seasonNumber: video.season,
+                episodeNumber: video.episode
+            )
+            AnalyticsService.shared.log(.playClicked, parameters: parameters)
+            let usedSessionId = playbackSessionId
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if playbackSessionId == usedSessionId {
+                    playbackSessionId = UUID()
+                }
+            }
+        })
     }
 }

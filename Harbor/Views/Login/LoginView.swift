@@ -24,7 +24,7 @@ struct LoginView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 26) {
                     header
                     form
                     if let errorMessage {
@@ -38,49 +38,64 @@ struct LoginView: View {
                     }
                     footnote
                 }
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 28)
             }
+        }
+        .onAppear {
+            AnalyticsService.shared.setCurrentScreen(.login, screenClass: "LoginView")
         }
     }
 
     private var header: some View {
-        VStack(spacing: 10) {
-            Image("HarborMark")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 92, height: 84)
-                .accessibilityLabel("Harbor")
-            Text("Harbor")
-                .font(.system(size: 34, weight: .bold))
-            Text("Sign in with your Stremio account to sync your library and addons.")
+        VStack(spacing: 13) {
+            HarborWordmark()
+                .scaleEffect(1.2)
+                .padding(.bottom, 20)
+            Text("WELCOME ABOARD")
+                .font(.system(size: 9, weight: .heavy))
+                .tracking(2.4)
+                .foregroundColor(Theme.accent)
+            Text("Your watchlist.\nYour streams. One harbor.")
+                .font(.system(size: 31, weight: .bold, design: .serif))
+                .tracking(-0.8)
+                .multilineTextAlignment(.center)
+            Text("Sign in with Stremio to sync your library and installed addons.")
                 .font(.subheadline)
                 .foregroundColor(Theme.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .padding(.top, 40)
+        .padding(.top, 54)
     }
 
     private var form: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("STREMIO ACCOUNT")
+                .font(.system(size: 9, weight: .heavy))
+                .tracking(1.8)
+                .foregroundColor(Theme.textSecondary)
+
             TextField("Email", text: $email)
                 .textContentType(.emailAddress)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding()
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+                .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Theme.border, lineWidth: 1))
 
             SecureField("Password", text: $password)
                 .textContentType(.password)
                 .submitLabel(.go)
                 .onSubmit { submit() }
                 .padding()
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+                .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Theme.border, lineWidth: 1))
 
             Button(action: submit) {
                 HStack {
                     if isBusy {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(.black)
                     } else {
                         Image(systemName: "arrow.right.to.line")
                     }
@@ -88,12 +103,15 @@ struct LoginView: View {
                         .font(.headline)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(canSubmit ? Theme.accent : Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundColor(.white)
             }
+            .buttonStyle(HarborPrimaryButtonStyle())
+            .opacity(canSubmit ? 1 : 0.45)
             .disabled(!canSubmit)
+            .padding(.top, 4)
         }
+        .padding(16)
+        .background(Theme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: 1))
     }
 
     private var footnote: some View {

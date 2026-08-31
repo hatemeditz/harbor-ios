@@ -13,6 +13,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Firebase-supported Xcode
+        run: |
+          # Firebase 12.15+ needs Swift tools 6.1 (Xcode 16.3+). Pick the newest
+          # installed Xcode that qualifies instead of pinning an image-specific
+          # path, so a runner image refresh cannot break the IPA build.
+          best=""
+          best_major=0
+          best_minor=0
+          for app in /Applications/Xcode*.app; do
+            [ -d "${app}" ] || continue
+            v=$("${app}/Contents/Developer/usr/bin/xcodebuild" -version 2>/dev/null | head -1 | awk '{print $2}')
+            [ -z "${v}" ] && continue
+            major=${v%%.*}
+            rest=${v#*.}
+            minor=${rest%%.*}
+            [ "${minor}" = "${v}" ] && minor=0
+            if [ "${major}" -gt 16 ] || { [ "${major}" -eq 16 ] && [ "${minor}" -ge 3 ]; }; then
+              if [ "${major}" -gt "${best_major}" ] || { [ "${major}" -eq "${best_major}" ] && [ "${minor}" -gt "${best_minor}" ]; }; then
+                best="${app}"
+                best_major="${major}"
+                best_minor="${minor}"
+              fi
+            fi
+          done
+          if [ -n "${best}" ]; then
+            sudo xcode-select --switch "${best}/Contents/Developer"
+          else
+            echo "No Xcode 16.3+ found; continuing with the default toolchain"
+          fi
+          xcodebuild -version
+
+      - name: Restore Firebase configuration (optional)
+        env:
+          FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
+        run: |
+          if [ -n "${FIREBASE_PLIST_BASE64}" ]; then
+            printf '%s' "${FIREBASE_PLIST_BASE64}" | base64 --decode > Harbor/GoogleService-Info.plist
+          else
+            echo "Firebase configuration not supplied; Harbor analytics will remain disabled"
+          fi
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -22,15 +63,29 @@ jobs:
       - name: Install CocoaPods dependencies
         run: pod install --repo-update
 
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -workspace Harbor.xcworkspace -scheme Harbor
+
       - name: Run tests
         run: |
           set -o pipefail
+          mkdir -p build
           xcodebuild -workspace Harbor.xcworkspace \
             -scheme Harbor \
             -configuration Debug \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -resultBundlePath build/HarborTests.xcresult \
             test \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Upload test results and design screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Harbor-test-results
+          path: build/HarborTests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Archive (unsigned)
         run: |

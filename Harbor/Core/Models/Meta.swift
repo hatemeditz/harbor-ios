@@ -101,13 +101,21 @@ struct MetaVideo: Codable, Identifiable, Hashable {
 struct MetaNavigation: Hashable {
     let meta: Meta
     let base: String?
+    let source: HarborNavigationSource
+
+    init(meta: Meta, base: String?, source: HarborNavigationSource = .unknown) {
+        self.meta = meta
+        self.base = base
+        self.source = source
+    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(meta.id)
         hasher.combine(meta.type)
+        hasher.combine(source)
     }
 
     static func == (lhs: MetaNavigation, rhs: MetaNavigation) -> Bool {
-        lhs.meta.id == rhs.meta.id && lhs.meta.type == rhs.meta.type
+        lhs.meta.id == rhs.meta.id && lhs.meta.type == rhs.meta.type && lhs.source == rhs.source
     }
 }

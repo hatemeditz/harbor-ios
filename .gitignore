@@ -17,3 +17,7 @@ DerivedData/
 
 # Xcode user state
 xcuserdata/
+
+# Project/environment-specific Firebase client configuration (restore locally
+# or from CI secrets; see docs/ANALYTICS.md)
+Harbor/GoogleService-Info*.plist
