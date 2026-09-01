@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct DetailView: View {
     let nav: MetaNavigation
@@ -11,8 +12,22 @@ struct DetailView: View {
     @State private var moviePlaybackSessionId = UUID()
 
     @ObservedObject private var library = LibraryStore.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var displayMeta: Meta { fullMeta ?? nav.meta }
+
+    private var story: String? {
+        [fullMeta?.description, nav.meta.description]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private var adaptiveLayout: HarborAdaptiveLayout {
+        .resolve(
+            userInterfaceIdiom: UIDevice.current.userInterfaceIdiom,
+            horizontalSizeClass: horizontalSizeClass
+        )
+    }
 
     private var episodeTargetMeta: Meta {
         let meta = displayMeta
@@ -37,7 +52,12 @@ struct DetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                hero
+                if adaptiveLayout == .pad {
+                    expandedHero
+                } else {
+                    compactHero
+                    compactTitleBlock
+                }
                 actionRow
                 aboutSection
                 if displayMeta.type == "series" {
@@ -45,6 +65,7 @@ struct DetailView: View {
                 }
                 Color.clear.frame(height: 40)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
@@ -113,94 +134,181 @@ struct DetailView: View {
 
     // MARK: - Sections
 
-    private var hero: some View {
-        ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: URL(string: (fullMeta?.background ?? nav.meta.background) ?? "")) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    LinearGradient(
-                        colors: [Theme.surfaceRaised, Theme.background],
-                        startPoint: .top, endPoint: .bottom
-                    )
+    private var expandedHero: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottomLeading) {
+                backdropImage
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+
+                LinearGradient(
+                    colors: [.black.opacity(0.08), .black.opacity(0.16), Theme.background],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                LinearGradient(
+                    colors: [Theme.background.opacity(0.7), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    mediaEyebrow
+
+                    if let logo = displayMeta.logo, !logo.isEmpty {
+                        AsyncImage(url: URL(string: logo)) { phase in
+                            if let image = phase.image {
+                                image.resizable().scaledToFit()
+                            } else {
+                                detailTitle
+                            }
+                        }
+                        .frame(maxWidth: 260, maxHeight: 92, alignment: .leading)
+                    } else {
+                        detailTitle
+                    }
+
+                    metadataBadges
+
+                    if let genres = displayMeta.genres, !genres.isEmpty {
+                        Text(genres.prefix(3).joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                    }
+
+                    if let description = story {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.72))
+                            .lineLimit(3)
+                            .frame(maxWidth: 340, alignment: .leading)
+                    }
                 }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 20)
             }
-            .frame(height: 490)
-            .clipped()
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 490)
+        .ignoresSafeArea(edges: .top)
+        .accessibilityIdentifier("harbor.detail.banner")
+    }
 
-            LinearGradient(
-                colors: [.black.opacity(0.08), .black.opacity(0.16), Theme.background],
-                startPoint: .top,
-                endPoint: .bottom
+    private var compactHero: some View {
+        GeometryReader { geometry in
+            ZStack {
+                backdropImage
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+
+                LinearGradient(
+                    colors: [.clear, Theme.background.opacity(0.98)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 220)
+        .clipped()
+        .ignoresSafeArea(edges: .top)
+        .accessibilityIdentifier("harbor.detail.banner")
+    }
+
+    private var compactTitleBlock: some View {
+        HStack(alignment: .top, spacing: 14) {
+            PosterCard(
+                meta: Meta(
+                    id: displayMeta.id,
+                    type: displayMeta.type,
+                    name: displayMeta.name,
+                    poster: displayMeta.poster ?? nav.meta.poster,
+                    background: nil,
+                    logo: nil,
+                    description: nil,
+                    releaseInfo: nil,
+                    imdbRating: nil,
+                    genres: nil,
+                    runtime: nil,
+                    country: nil,
+                    network: nil,
+                    videos: nil
+                ),
+                width: 92,
+                showTitle: false
             )
 
-            LinearGradient(
-                colors: [Theme.background.opacity(0.7), .clear],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            VStack(alignment: .leading, spacing: 8) {
+                mediaEyebrow
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(displayMeta.type == "series" ? "HARBOR SERIES" : "HARBOR MOVIE")
-                    .font(.system(size: 9, weight: .heavy))
-                    .tracking(2.2)
-                    .foregroundColor(Theme.accent)
+                Text(displayMeta.name)
+                    .font(.system(size: 26, weight: .bold, design: .serif))
+                    .tracking(-0.5)
+                    .foregroundColor(Theme.textPrimary)
+                    .lineLimit(3)
 
-                if let logo = displayMeta.logo, !logo.isEmpty {
-                    AsyncImage(url: URL(string: logo)) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit()
-                        } else {
-                            detailTitle
-                        }
-                    }
-                    .frame(maxWidth: 260, maxHeight: 92, alignment: .leading)
-                } else {
-                    detailTitle
-                }
-
-                HStack(spacing: 8) {
-                    if let year = displayMeta.releaseInfo, !year.isEmpty {
-                        Badge(text: year)
-                    }
-                    if let runtime = displayMeta.runtime, !runtime.isEmpty {
-                        Badge(text: runtime)
-                    }
-                    if let rating = displayMeta.imdbRating, !rating.isEmpty {
-                        HStack(spacing: 3) {
-                            Text("IMDb")
-                                .font(.system(size: 8, weight: .black))
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 3)
-                                .padding(.vertical, 2)
-                                .background(Color.yellow, in: RoundedRectangle(cornerRadius: 2))
-                            Text(rating).font(.caption.weight(.semibold))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Theme.surfaceRaised, in: Capsule())
-                    }
-                }
+                metadataBadges
 
                 if let genres = displayMeta.genres, !genres.isEmpty {
                     Text(genres.prefix(3).joined(separator: " · "))
                         .font(.caption)
                         .foregroundColor(Theme.textSecondary)
-                }
-
-                if let description = displayMeta.description, !description.isEmpty {
-                    Text(description)
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.72))
-                        .lineLimit(3)
-                        .frame(maxWidth: 340, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 490)
-        .ignoresSafeArea(edges: .top)
+        .padding(.horizontal, 16)
+        .padding(.top, -44)
+    }
+
+    private var backdropImage: some View {
+        AsyncImage(url: URL(string: (fullMeta?.background ?? nav.meta.background) ?? "")) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill()
+            } else {
+                LinearGradient(
+                    colors: [Theme.surfaceRaised, Theme.background],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+    }
+
+    private var mediaEyebrow: some View {
+        Text(displayMeta.type == "series" ? "HARBOR SERIES" : "HARBOR MOVIE")
+            .font(.system(size: 9, weight: .heavy))
+            .tracking(2.2)
+            .foregroundColor(Theme.accent)
+    }
+
+    private var metadataBadges: some View {
+        HStack(spacing: 8) {
+            if let year = displayMeta.releaseInfo, !year.isEmpty {
+                Badge(text: year)
+            }
+            if let runtime = displayMeta.runtime, !runtime.isEmpty {
+                Badge(text: runtime)
+            }
+            if let rating = displayMeta.imdbRating, !rating.isEmpty {
+                HStack(spacing: 3) {
+                    Text("IMDb")
+                        .font(.system(size: 8, weight: .black))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 2)
+                        .background(Color.yellow, in: RoundedRectangle(cornerRadius: 2))
+                    Text(rating).font(.caption.weight(.semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Theme.surfaceRaised, in: Capsule())
+            }
+        }
     }
 
     private var detailTitle: some View {
@@ -259,18 +367,20 @@ struct DetailView: View {
             .buttonStyle(HarborSecondaryButtonStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.top, 6)
+        .padding(.top, adaptiveLayout == .pad ? 6 : 14)
     }
 
     @ViewBuilder
     private var aboutSection: some View {
-        if let description = fullMeta?.description ?? nav.meta.description,
-           !description.isEmpty {
+        if let description = story {
             VStack(alignment: .leading, spacing: 6) {
                 HarborSectionHeader(title: "About", subtitle: "Story and details")
                 Text(description)
                     .font(.callout)
                     .foregroundColor(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("harbor.detail.story")
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)

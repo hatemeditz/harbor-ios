@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class HomeViewModel: ObservableObject {
@@ -76,8 +77,16 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var featuredIndex = 0
 
-    private var horizontalPadding: CGFloat { horizontalSizeClass == .regular ? 28 : 16 }
-    private var heroHeight: CGFloat { horizontalSizeClass == .regular ? 530 : 450 }
+    private var adaptiveLayout: HarborAdaptiveLayout {
+        .resolve(
+            userInterfaceIdiom: UIDevice.current.userInterfaceIdiom,
+            horizontalSizeClass: horizontalSizeClass
+        )
+    }
+
+    private var usesExpandedMetrics: Bool { adaptiveLayout == .pad }
+    private var horizontalPadding: CGFloat { usesExpandedMetrics ? 28 : 16 }
+    private var heroHeight: CGFloat { usesExpandedMetrics ? 530 : 450 }
 
     var body: some View {
         NavigationStack {
@@ -190,7 +199,7 @@ struct HomeView: View {
 
     private var featuredNavigations: [MetaNavigation] {
         if !tmdbCatalog.homeTrending.isEmpty {
-            return tmdbCatalog.homeTrending.prefix(horizontalSizeClass == .regular ? 5 : 4).map {
+            return tmdbCatalog.homeTrending.prefix(usesExpandedMetrics ? 5 : 4).map {
                 MetaNavigation(meta: $0, base: nil, source: .home)
             }
         }
@@ -273,7 +282,7 @@ struct HomeView: View {
                     .frame(maxWidth: 245, maxHeight: 82, alignment: .leading)
                 } else {
                     Text(meta.name)
-                        .font(.system(size: horizontalSizeClass == .regular ? 44 : 34, weight: .bold, design: .serif))
+                        .font(.system(size: usesExpandedMetrics ? 44 : 34, weight: .bold, design: .serif))
                         .tracking(-1)
                         .lineLimit(2)
                 }
@@ -285,7 +294,7 @@ struct HomeView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.74))
                         .lineLimit(3)
-                        .frame(maxWidth: horizontalSizeClass == .regular ? 510 : 330, alignment: .leading)
+                        .frame(maxWidth: usesExpandedMetrics ? 510 : 330, alignment: .leading)
                 }
 
                 HStack(spacing: 10) {
@@ -303,12 +312,12 @@ struct HomeView: View {
                     .buttonStyle(HarborSecondaryButtonStyle())
                 }
             }
-            .padding(horizontalSizeClass == .regular ? 28 : 18)
+            .padding(usesExpandedMetrics ? 28 : 18)
         }
         .frame(height: heroHeight)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.border, lineWidth: 1))
-        .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 12)
+        .padding(.horizontal, usesExpandedMetrics ? 28 : 12)
     }
 
     private func heroMetadata(_ meta: Meta) -> some View {

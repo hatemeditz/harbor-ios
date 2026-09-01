@@ -48,6 +48,37 @@ final class LaunchSmokeTests: XCTestCase {
         capture("Settings", app: app)
     }
 
+    func testIPhoneRotationKeepsCompactNavigationHierarchy() {
+        XCUIDevice.shared.orientation = .portrait
+        addTeardownBlock {
+            XCUIDevice.shared.orientation = .portrait
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments.append("-HarborUITestSignedIn")
+        app.launch()
+
+        XCTAssertTrue(app.buttons["harbor.tab.home"].waitForExistence(timeout: 10))
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+
+        let window = app.windows.firstMatch
+        let landscapeExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else { return false }
+                return element.frame.width > element.frame.height
+            },
+            object: window
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [landscapeExpectation], timeout: 5),
+            .completed
+        )
+
+        XCTAssertTrue(app.buttons["harbor.tab.home"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["harbor.sidebar.home"].exists)
+    }
+
     private func navigationButton(_ name: String, app: XCUIApplication) -> XCUIElement {
         let compact = app.buttons["harbor.tab.\(name)"]
         if compact.waitForExistence(timeout: 2) { return compact }

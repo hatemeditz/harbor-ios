@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum HarborTab: String, CaseIterable, Identifiable {
     case home = "Home"
@@ -23,6 +24,13 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTab: HarborTab = .home
 
+    private var adaptiveLayout: HarborAdaptiveLayout {
+        .resolve(
+            userInterfaceIdiom: UIDevice.current.userInterfaceIdiom,
+            horizontalSizeClass: horizontalSizeClass
+        )
+    }
+
     var body: some View {
         if auth.isSignedIn {
             tabs
@@ -33,7 +41,7 @@ struct RootView: View {
 
     private var tabs: some View {
         Group {
-            if horizontalSizeClass == .regular {
+            if adaptiveLayout == .pad {
                 regularLayout
             } else {
                 compactLayout
